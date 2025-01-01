@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { buildApiUrl } from '@/lib/api';
 import { 
@@ -15,8 +15,7 @@ import {
   Minus,
   Search,
   Download,
-  Play,
-  TrendingUp
+  Play
 } from 'lucide-react';
 import { Card, Button, media } from '../styles/GlobalStyles';
 import {
@@ -71,10 +70,28 @@ interface CustomLabelProps {
   percentage: number;
 }
 
+type EvolutionPoint = {
+  label: string;
+  acertos: number;
+  erros: number;
+  total: number;
+};
+
+type PerformanceSummary = {
+  totalQuestions: number;
+  correctAnswers: number;
+  incorrectAnswers: number;
+  accuracyPercentage: number;
+  evolution: EvolutionPoint[];
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 const TOKEN_KEY = 'pantheon:token';
 const QUESTIONS_URL = buildApiUrl('/questoes');
+const QUESTION_FILTERS_URL = buildApiUrl('/questoes/filtros');
+const PERFORMANCE_URL = buildApiUrl('/meu-desempenho');
+const PERFORMANCE_SUMMARY_URL = buildApiUrl('/meu-desempenho/resumo');
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null;
@@ -122,9 +139,128 @@ const normalizeFilterValue = (value: string) =>
     .toLowerCase()
     .trim();
 
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+const formatDateLabel = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return `${pad2(parsed.getDate())}/${pad2(parsed.getMonth() + 1)}`;
+};
+
+const formatDateISO = (value: Date) =>
+  `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+
+const normalizeEvolutionSeries = (payload: UnknownRecord): EvolutionPoint[] => {
+  const rawSeries =
+    payload['evolucao'] ??
+    payload['series'] ??
+    payload['itens'] ??
+    payload['dados'];
+  if (!Array.isArray(rawSeries)) return [];
+
+  return rawSeries.map((entry) => {
+    const record = isRecord(entry) ? entry : {};
+    const labelSource = getFirstString(record, ['data', 'dia', 'date', 'data_gravacao'], '');
+    const correct = toNumber(record['acertos']) ??
+      toNumber(record['questoes_corretas']) ??
+      toNumber(record['corretas']) ??
+      0;
+    const incorrect = toNumber(record['erros']) ??
+      toNumber(record['questoes_erradas']) ??
+      toNumber(record['erradas']) ??
+      0;
+    const total = toNumber(record['total']) ??
+      toNumber(record['total_questoes']) ??
+      correct + incorrect;
+
+    return {
+      label: formatDateLabel(labelSource),
+      acertos: correct,
+      erros: incorrect,
+      total
+    };
+  });
+};
+
+const normalizePerformanceSummary = (payload: unknown): PerformanceSummary => {
+  const fallback: PerformanceSummary = {
+    totalQuestions: 0,
+    correctAnswers: 0,
+    incorrectAnswers: 0,
+    accuracyPercentage: 0,
+    evolution: []
+  };
+  if (!isRecord(payload)) return fallback;
+
+  const totalQuestions =
+    toNumber(payload['total_questoes']) ??
+    toNumber(payload['totalQuestoes']) ??
+    toNumber(payload['total']) ??
+    0;
+  const correctAnswers =
+    toNumber(payload['questoes_corretas']) ??
+    toNumber(payload['questoesCorretas']) ??
+    toNumber(payload['corretas']) ??
+    0;
+  const incorrectAnswers =
+    toNumber(payload['questoes_erradas']) ??
+    toNumber(payload['questoesErradas']) ??
+    toNumber(payload['erradas']) ??
+    0;
+  const accuracy =
+    toNumber(payload['percentual_acertos']) ??
+    toNumber(payload['percentualAcertos']) ??
+    (totalQuestions > 0
+      ? Math.round((correctAnswers / totalQuestions) * 100)
+      : 0);
+
+  return {
+    totalQuestions,
+    correctAnswers,
+    incorrectAnswers,
+    accuracyPercentage: accuracy,
+    evolution: normalizeEvolutionSeries(payload)
+  };
+};
+
 const indexToLetter = (index: number) => String.fromCharCode(97 + index);
 
+const normalizeAnswerKey = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value >= 1 && value <= 5) return indexToLetter(value - 1);
+    return '';
+  }
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const lower = trimmed.toLowerCase();
+  if (['a', 'b', 'c', 'd', 'e'].includes(lower)) return lower;
+  const numeric = Number(trimmed);
+  if (!Number.isNaN(numeric) && numeric >= 1 && numeric <= 5) {
+    return indexToLetter(numeric - 1);
+  }
+  const match = lower.match(/[a-e]/);
+  return match ? match[0] : '';
+};
+
 const extractQuestionOptions = (record: UnknownRecord): string[] => {
+  const alternativeKeys = [
+    'alternativa_a',
+    'alternativa_b',
+    'alternativa_c',
+    'alternativa_d',
+    'alternativa_e',
+    'alternativaA',
+    'alternativaB',
+    'alternativaC',
+    'alternativaD',
+    'alternativaE'
+  ];
+  const alternativeValues = alternativeKeys
+    .map((key) => normalizeQuestionText(getString(record, key)))
+    .filter((value) => value);
+  if (alternativeValues.length) return alternativeValues;
+
   const raw =
     record['alternativas'] ??
     record['opcoes'] ??
@@ -174,9 +310,9 @@ const normalizeDifficulty = (value: string) => {
 };
 
 const getDifficultyLabel = (value: Question['difficulty']) => {
-  if (value === 'easy') return 'Fácil';
-  if (value === 'hard') return 'Difícil';
-  return 'Médio';
+  if (value === 'easy') return 'F├ícil';
+  if (value === 'hard') return 'Dif├¡cil';
+  return 'M├®dio';
 };
 
 const normalizeQuestionRecord = (item: unknown, index: number): Question => {
@@ -200,10 +336,22 @@ const normalizeQuestionRecord = (item: unknown, index: number): Question => {
   ]);
 
   const options = extractQuestionOptions(record).filter((option) => option);
-  const correctAnswer =
+  const answerFromNumber =
     numeroAlternativaCorreta && numeroAlternativaCorreta > 0
       ? indexToLetter(numeroAlternativaCorreta - 1)
       : '';
+  const answerFromText = normalizeAnswerKey(
+    getFirstString(record, [
+      'resposta_correta',
+      'respostaCorreta',
+      'gabarito',
+      'alternativa_correta',
+      'alternativaCorreta',
+      'numero_alternativa_correta',
+      'numeroAlternativaCorreta'
+    ])
+  );
+  const correctAnswer = answerFromNumber || answerFromText;
 
   const disciplina = getFirstString(record, [
     'area_conhecimento',
@@ -1091,6 +1239,17 @@ const SistemaQuestoes: React.FC = () => {
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [hasLoadedQuestions, setHasLoadedQuestions] = useState(false);
+  const [performancePeriod, setPerformancePeriod] = useState('all');
+  const [performanceView, setPerformanceView] = useState<'bar' | 'line'>('bar');
+  const [performanceSummary, setPerformanceSummary] = useState<PerformanceSummary>({
+    totalQuestions: 0,
+    correctAnswers: 0,
+    incorrectAnswers: 0,
+    accuracyPercentage: 0,
+    evolution: []
+  });
+  const [performanceLoading, setPerformanceLoading] = useState(false);
+  const [performanceError, setPerformanceError] = useState<string | null>(null);
 
   const isSubscriber = true;
 
@@ -1135,16 +1294,86 @@ const SistemaQuestoes: React.FC = () => {
     }
   }, []);
 
+  const loadPerformanceSummary = useCallback(async (period: string) => {
+    setPerformanceLoading(true);
+    setPerformanceError(null);
+    try {
+      const token =
+        typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (!token) {
+        throw new Error('Token nao encontrado. Faca login para ver desempenho.');
+      }
+
+      const endDate = new Date();
+      let startDate = new Date();
+      switch (period) {
+        case 'today':
+          startDate = new Date(endDate);
+          break;
+        case '7days':
+          startDate.setDate(endDate.getDate() - 6);
+          break;
+        case '15days':
+          startDate.setDate(endDate.getDate() - 14);
+          break;
+        case '30days':
+          startDate.setDate(endDate.getDate() - 29);
+          break;
+        case 'all':
+        default:
+          startDate = new Date(1970, 0, 1);
+          break;
+      }
+
+      const params = new URLSearchParams({
+        data_inicio: formatDateISO(startDate),
+        data_fim: formatDateISO(endDate)
+      });
+      const response = await fetch(`${PERFORMANCE_SUMMARY_URL}?${params.toString()}`, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Falha ao carregar desempenho (${response.status})`);
+      }
+      const payload = await response.json();
+      setPerformanceSummary(normalizePerformanceSummary(payload));
+    } catch (requestError) {
+      setPerformanceError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Erro ao carregar desempenho.'
+      );
+      setPerformanceSummary({
+        totalQuestions: 0,
+        correctAnswers: 0,
+        incorrectAnswers: 0,
+        accuracyPercentage: 0,
+        evolution: []
+      });
+    } finally {
+      setPerformanceLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeTab !== 'objective') return;
     if (hasLoadedQuestions || questionsLoading) return;
     void loadQuestions();
   }, [activeTab, hasLoadedQuestions, loadQuestions, questionsLoading]);
 
+  useEffect(() => {
+    if (activeTab !== 'performance') return;
+    void loadPerformanceSummary(performancePeriod);
+  }, [activeTab, loadPerformanceSummary, performancePeriod]);
+
   const subjectsByDiscipline: { [key: string]: string[] } = {
-    'civil': ['LINDB', 'Domicílio'],
+    'civil': ['LINDB', 'Domic├¡lio'],
     'constitucional': ['Poder Legislativo', 'Controle de Constitucionalidade'],
-    'penal': ['Teoria Geral do Delito', 'Prisão Preventiva']
+    'penal': ['Teoria Geral do Delito', 'Pris├úo Preventiva']
   };
 
   const mockDiscursiveQuestions: DiscursiveQuestion[] = [
@@ -1156,17 +1385,17 @@ const SistemaQuestoes: React.FC = () => {
       institution: 'OAB',
       exam: 'XXXVII Exame de Ordem',
       question: 'Discorra sobre os elementos da responsabilidade civil e suas modalidades.',
-      referenceAnswer: 'A responsabilidade civil possui três elementos essenciais: conduta (ação ou omissão), dano e nexo causal...',
+      referenceAnswer: 'A responsabilidade civil possui tr├¬s elementos essenciais: conduta (a├º├úo ou omiss├úo), dano e nexo causal...',
       answered: false
     }
   ];
 
   const mockExams = [
-    { id: '1', name: 'FGV OAB 44º Exame', year: 2025 },
-    { id: '2', name: 'FGV OAB 43º Exame', year: 2025 },
-    { id: '3', name: 'FGV OAB 42º Exame', year: 2024 },
-    { id: '4', name: 'FGV OAB 41º Exame', year: 2024 },
-    { id: '5', name: 'FGV OAB 40º Exame', year: 2024 },
+    { id: '1', name: 'FGV OAB 44┬║ Exame', year: 2025 },
+    { id: '2', name: 'FGV OAB 43┬║ Exame', year: 2025 },
+    { id: '3', name: 'FGV OAB 42┬║ Exame', year: 2024 },
+    { id: '4', name: 'FGV OAB 41┬║ Exame', year: 2024 },
+    { id: '5', name: 'FGV OAB 40┬║ Exame', year: 2024 },
     { id: '6', name: 'FGV OAB XXXIX Exame', year: 2023 },
     { id: '7', name: 'FGV OAB XXXVIII Exame', year: 2023 },
     { id: '8', name: 'FGV OAB XXXVII Exame', year: 2023 },
@@ -1191,52 +1420,26 @@ const SistemaQuestoes: React.FC = () => {
     { id: 'notebook', label: 'Caderno', icon: BookmarkPlus },
     { id: 'report', label: 'Notificar Erro', icon: AlertTriangle }
   ];
-
-  // Dados para os gráficos
-  const performanceData = {
-    totalQuestions: 247,
-    correctAnswers: 193,
-    incorrectAnswers: 54,
-    accuracyPercentage: 78
-  };
-
-  // Dados para o gráfico de evolução (últimos 7 dias)
-  const evolutionData = [
-    { day: 'Seg', acertos: 12, total: 15 },
-    { day: 'Ter', acertos: 18, total: 22 },
-    { day: 'Qua', acertos: 25, total: 30 },
-    { day: 'Qui', acertos: 20, total: 28 },
-    { day: 'Sex', acertos: 28, total: 35 },
-    { day: 'Sáb', acertos: 32, total: 40 },
-    { day: 'Dom', acertos: 22, total: 28 }
-  ];
-
-  // Dados para o gráfico de barras por disciplina
-  const disciplineData = [
-    { name: 'Dir. Civil', acertos: 85, total: 100 },
-    { name: 'Dir. Const.', acertos: 78, total: 100 },
-    { name: 'Dir. Penal', acertos: 72, total: 100 },
-    { name: 'Dir. Admin.', acertos: 68, total: 100 },
-    { name: 'Dir. Trab.', acertos: 65, total: 100 }
-  ];
-
-  // Dados para o gráfico de rosca - com percentuais corretos
   const pieData = [
     { 
-      name: 'Questões Corretas', 
-      value: performanceData.correctAnswers, 
-      percentage: Math.round((performanceData.correctAnswers / performanceData.totalQuestions) * 100),
+      name: 'Questoes Corretas', 
+      value: performanceSummary.correctAnswers, 
+      percentage: performanceSummary.totalQuestions
+        ? Math.round((performanceSummary.correctAnswers / performanceSummary.totalQuestions) * 100)
+        : 0,
       color: '#22c55e' 
     },
     { 
-      name: 'Questões Incorretas', 
-      value: performanceData.incorrectAnswers, 
-      percentage: Math.round((performanceData.incorrectAnswers / performanceData.totalQuestions) * 100),
+      name: 'Questoes Incorretas', 
+      value: performanceSummary.incorrectAnswers, 
+      percentage: performanceSummary.totalQuestions
+        ? Math.round((performanceSummary.incorrectAnswers / performanceSummary.totalQuestions) * 100)
+        : 0,
       color: '#db3026'
     }
   ];
 
-  // Função personalizada para renderizar labels no gráfico de rosca
+  // Fun├º├úo personalizada para renderizar labels no gr├ífico de rosca
   const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percentage }: CustomLabelProps) => {
     const RADIAN = Math.PI / 180;
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
@@ -1270,8 +1473,44 @@ const SistemaQuestoes: React.FC = () => {
     }));
   };
 
+  const sendPerformanceUpdate = useCallback(async (isCorrect: boolean) => {
+    try {
+      const token =
+        typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (!token) return;
+
+      const payload = {
+        data_gravacao: new Date().toISOString(),
+        questoes_corretas: isCorrect ? 1 : 0,
+        questoes_erradas: isCorrect ? 0 : 1,
+        total_questoes: 1
+      };
+
+      const response = await fetch(PERFORMANCE_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Falha ao atualizar desempenho (${response.status})`);
+      }
+    } catch (requestError) {
+      console.error('Erro ao atualizar desempenho', requestError);
+    }
+  }, []);
+
   const handleAnswerSubmit = (questionId: string) => {
     if (!selectedAnswers[questionId]) return;
+    if (answeredQuestions[questionId]) return;
+    const question = questions.find((item) => item.id === questionId);
+    const isCorrect = Boolean(question?.correctAnswer) &&
+      selectedAnswers[questionId] === question?.correctAnswer;
     
     setAnsweredQuestions(prev => ({
       ...prev,
@@ -1279,6 +1518,7 @@ const SistemaQuestoes: React.FC = () => {
     }));
     
     setQuestionsAnswered(prev => prev + 1);
+    void sendPerformanceUpdate(isCorrect);
   };
 
   const handleStrikeOption = (questionId: string, optionIndex: number) => {
@@ -1395,7 +1635,7 @@ const SistemaQuestoes: React.FC = () => {
         </FilterGroup>
         
         <FilterGroup>
-          <label>Instituição</label>
+          <label>Institui├º├úo</label>
           <select 
             value={selectedFilters.institution} 
             onChange={(e) => setSelectedFilters(prev => ({...prev, institution: e.target.value}))}
@@ -1425,9 +1665,9 @@ const SistemaQuestoes: React.FC = () => {
             onChange={(e) => setSelectedFilters(prev => ({...prev, difficulty: e.target.value}))}
           >
             <option value="">Todas</option>
-            <option value="easy">Fácil</option>
-            <option value="medium">Médio</option>
-            <option value="hard">Difícil</option>
+            <option value="easy">F├ícil</option>
+            <option value="medium">M├®dio</option>
+            <option value="hard">Dif├¡cil</option>
           </select>
         </FilterGroup>
 
@@ -1461,7 +1701,7 @@ const SistemaQuestoes: React.FC = () => {
 
       <QuestionCounter>
         {filteredQuestions.length} questões encontradas
-        {!isSubscriber && ` • ${5 - questionsAnswered} questões restantes (gratuitas)`}
+        {!isSubscriber && ` ÔÇó ${5 - questionsAnswered} questões restantes (gratuitas)`}
       </QuestionCounter>
 
       {questionsLoading ? (
@@ -1565,6 +1805,21 @@ const SistemaQuestoes: React.FC = () => {
               </div>
             )}
 
+            {isAnswered && (
+              <div style={{ 
+                padding: '12px', 
+                borderRadius: '8px', 
+                background: '#f8fafc',
+                color: '#0f172a',
+                marginBottom: '16px'
+              }}>
+                <strong>Gabarito:</strong>{' '}
+                {question.correctAnswer
+                  ? question.correctAnswer.toUpperCase()
+                  : 'Nao informado'}
+              </div>
+            )}
+
             <QuestionTabs>
               {questionTabs.map(tab => (
                 <QuestionTab
@@ -1584,7 +1839,7 @@ const SistemaQuestoes: React.FC = () => {
                   <div>
                     {!isSubscriber ? (
                       <div>
-                        <p>🔒 Conteúdo exclusivo para assinantes</p>
+                        <p>­ƒöÆ Conte├║do exclusivo para assinantes</p>
                         <Button onClick={() => setShowUpgradeModal(true)}>
                           Fazer upgrade
                         </Button>
@@ -1596,7 +1851,7 @@ const SistemaQuestoes: React.FC = () => {
                       </div>
                     ) : (
                       <div>
-                        <p>📝 Responda a questão para ver o gabarito comentado</p>
+                        <p>Responda a questão para ver o gabarito comentado</p>
                       </div>
                     )}
                   </div>
@@ -1657,7 +1912,7 @@ const SistemaQuestoes: React.FC = () => {
           </select>
         </FilterGroup>
         <FilterGroup>
-          <label>Órgão</label>
+          <label>├ôrg├úo</label>
           <select>
             <option value="">Todos</option>
             <option value="oab">OAB</option>
@@ -1711,14 +1966,14 @@ const SistemaQuestoes: React.FC = () => {
 
           <DiscursiveAnswer 
             fontSize={fontSize}
-            placeholder="Digite sua resposta (mínimo 10 caracteres)..."
+            placeholder="Digite sua resposta (m├¡nimo 10 caracteres)..."
             minLength={10}
           />
 
           <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
             <Button>Enviar Resposta</Button>
             <Button variant="outline">Reenviar</Button>
-            <Button variant="outline">Correção por IA</Button>
+            <Button variant="outline">Corre├º├úo por IA</Button>
           </div>
 
           <TabContent active={true} fontSize={fontSize}>
@@ -1817,7 +2072,7 @@ const SistemaQuestoes: React.FC = () => {
         <ExamCard>
           <div className="exam-info">
             <h3>Simulado Direito Civil - LINDB</h3>
-            <div className="exam-meta">20 questões • Tempo estimado: 40 min</div>
+            <div className="exam-meta">20 questões ÔÇó Tempo estimado: 40 min</div>
           </div>
           <div className="exam-actions">
             <Button>
@@ -1830,7 +2085,7 @@ const SistemaQuestoes: React.FC = () => {
         <ExamCard>
           <div className="exam-info">
             <h3>Simulado Direito Constitucional - Poder Legislativo</h3>
-            <div className="exam-meta">15 questões • Tempo estimado: 30 min</div>
+            <div className="exam-meta">15 questões ÔÇó Tempo estimado: 30 min</div>
           </div>
           <div className="exam-actions">
             <Button>
@@ -1844,154 +2099,142 @@ const SistemaQuestoes: React.FC = () => {
   );
 
   const renderPerformance = () => (
-    <>
-      <FiltersContainer>
-        <FilterGroup>
-          <label>Período</label>
-          <select>
-            <option value="today">Hoje</option>
-            <option value="7days">Últimos 7 dias</option>
-            <option value="15days">Últimos 15 dias</option>
-            <option value="30days">Últimos 30 dias</option>
-            <option value="all">Desde o início</option>
-          </select>
-        </FilterGroup>
-      </FiltersContainer>
+  <>
+    <FiltersContainer>
+      <FilterGroup>
+        <label>Periodo</label>
+        <select
+          value={performancePeriod}
+          onChange={(event) => setPerformancePeriod(event.target.value)}
+          disabled={performanceLoading}
+        >
+          <option value="all">Desde o inicio</option>
+          <option value="today">Hoje</option>
+          <option value="7days">Ultimos 7 dias</option>
+          <option value="15days">Ultimos 15 dias</option>
+          <option value="30days">Ultimos 30 dias</option>
+        </select>
+      </FilterGroup>
+    </FiltersContainer>
 
-      <PerformanceGrid>
-        <StatCard>
-          <div className="stat-number">{performanceData.totalQuestions}</div>
-          <div className="stat-label">Total de Questões</div>
-        </StatCard>
-        <StatCard>
-          <div className="stat-number">{performanceData.accuracyPercentage}%</div>
-          <div className="stat-label">Percentual de Acertos</div>
-        </StatCard>
-        <StatCard>
-          <div className="stat-number">{performanceData.correctAnswers}</div>
-          <div className="stat-label">Questões Corretas</div>
-        </StatCard>
-        <StatCard>
-          <div className="stat-number">{performanceData.incorrectAnswers}</div>
-          <div className="stat-label">Questões Erradas</div>
-        </StatCard>
-      </PerformanceGrid>
+    {performanceError && (
+      <Card>{performanceError}</Card>
+    )}
 
-      <ChartContainer>
-        <ChartCard>
-          <h3>Evolução de Acertos (Últimos 7 dias)</h3>
-          <div className="chart-container">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={evolutionData}>
+    <PerformanceGrid>
+      <StatCard>
+        <div className="stat-number">{performanceSummary.totalQuestions}</div>
+        <div className="stat-label">Total de Questoes</div>
+      </StatCard>
+      <StatCard>
+        <div className="stat-number">{performanceSummary.accuracyPercentage}%</div>
+        <div className="stat-label">Percentual de Acertos</div>
+      </StatCard>
+      <StatCard>
+        <div className="stat-number">{performanceSummary.correctAnswers}</div>
+        <div className="stat-label">Questoes Corretas</div>
+      </StatCard>
+      <StatCard>
+        <div className="stat-number">{performanceSummary.incorrectAnswers}</div>
+        <div className="stat-label">Questoes Erradas</div>
+      </StatCard>
+    </PerformanceGrid>
+
+    <ChartContainer>
+      <ChartCard>
+        <h3>Evolucao de Acertos</h3>
+        <div className="chart-container">
+          <ResponsiveContainer width="100%" height="100%">
+            {performanceView === 'bar' ? (
+              <RechartsBarChart data={performanceSummary.evolution}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="day" />
+                <XAxis dataKey="label" />
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line 
-                  type="monotone" 
-                  dataKey="acertos" 
-                  stroke="#22c55e" 
+                <Bar dataKey="acertos" fill="#22c55e" name="Acertos" />
+                <Bar dataKey="erros" fill="#ef4444" name="Erros" />
+              </RechartsBarChart>
+            ) : (
+              <LineChart data={performanceSummary.evolution}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="acertos"
+                  stroke="#22c55e"
                   strokeWidth={3}
                   name="Acertos"
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="total" 
-                  stroke="#3b82f6" 
+                <Line
+                  type="monotone"
+                  dataKey="erros"
+                  stroke="#ef4444"
                   strokeWidth={2}
-                  name="Total"
+                  name="Erros"
                 />
               </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </ChartCard>
+            )}
+          </ResponsiveContainer>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+          <Button
+            variant="outline"
+            onClick={() => setPerformanceView('bar')}
+            style={{
+              background: performanceView === 'bar' ? '#e5e7eb' : 'transparent'
+            }}
+          >
+            Barras
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setPerformanceView('line')}
+            style={{
+              background: performanceView === 'line' ? '#e5e7eb' : 'transparent'
+            }}
+          >
+            Linhas
+          </Button>
+        </div>
+      </ChartCard>
 
-        <ChartCard>
-          <h3>Desempenho por Disciplina</h3>
-          <div className="chart-container">
-            <ResponsiveContainer width="100%" height="100%">
-              <RechartsBarChart data={disciplineData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="acertos" fill="#22c55e" name="% Acertos" />
-              </RechartsBarChart>
-            </ResponsiveContainer>
-          </div>
-        </ChartCard>
-
-        <ChartCard>
-          <h3>Distribuição de Acertos</h3>
-          <div className="chart-container">
-            <ResponsiveContainer width="100%" height="100%">
-              <RechartsPieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={renderCustomizedLabel}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip 
-                  formatter={(value: number, name: string) => [
-                    `${value} questões (${pieData.find(item => item.name === name)?.percentage}%)`,
-                    name
-                  ]}
-                />
-                <Legend />
-              </RechartsPieChart>
-            </ResponsiveContainer>
-          </div>
-        </ChartCard>
-      </ChartContainer>
-
-      <Card>
-        <h3 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <TrendingUp size={20} />
-          Top 5 Disciplinas
-        </h3>
-        
-        {[
-          { name: 'Direito Civil', percentage: 85 },
-          { name: 'Direito Constitucional', percentage: 78 },
-          { name: 'Direito Penal', percentage: 72 },
-          { name: 'Direito Administrativo', percentage: 68 },
-          { name: 'Direito do Trabalho', percentage: 65 }
-        ].map((discipline, index) => (
-          <div key={index} style={{ marginBottom: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span>{discipline.name}</span>
-              <span style={{ fontWeight: '600', color: '#22c55e' }}>{discipline.percentage}%</span>
-            </div>
-            <div style={{ 
-              width: '100%', 
-              height: '8px', 
-              background: '#e2e8f0', 
-              borderRadius: '4px',
-              overflow: 'hidden'
-            }}>
-              <div style={{ 
-                width: `${discipline.percentage}%`, 
-                height: '100%', 
-                background: '#22c55e',
-                transition: 'width 0.3s ease'
-              }} />
-            </div>
-          </div>
-        ))}
-      </Card>
-    </>
-  );
+      <ChartCard>
+        <h3>Distribuicao de Acertos</h3>
+        <div className="chart-container">
+          <ResponsiveContainer width="100%" height="100%">
+            <RechartsPieChart>
+              <Pie
+                data={pieData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={renderCustomizedLabel}
+                outerRadius={80}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {pieData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(value: number, name: string) => [
+                  `${value} questoes (${pieData.find(item => item.name === name)?.percentage}%)`,
+                  name
+                ]}
+              />
+              <Legend />
+            </RechartsPieChart>
+          </ResponsiveContainer>
+        </div>
+      </ChartCard>
+    </ChartContainer>
+  </>
+);
 
   return (
     <QuestionsContainer>
@@ -2045,5 +2288,10 @@ const SistemaQuestoes: React.FC = () => {
 };
 
 export default SistemaQuestoes;
+
+
+
+
+
 
 
