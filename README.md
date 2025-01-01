@@ -71,11 +71,11 @@
 - Listagem hierarquica: Cursos > Modulos > Itens
 - Barra de progresso para cursos e modulos
 - Indicadores de conclusao de atividades
+- Sistema de progresso salvo em localStorage (`pantheon:completed-items`)
 - Autenticacao via Bearer token (`pantheon:token`)
 - Redirect automatico para login se nao autenticado ou sessao expirada
 - Endpoints utilizados:
   - `GET /api/v1/cursos/categorias`
-  - `GET /api/v1/cursos`
   - `GET /api/v1/meus-cursos/modulos`
   - `GET /api/v1/meus-cursos/itens`
 
@@ -85,6 +85,7 @@
 - Sidebar lateral com lista de atividades do modulo
 - Navegacao sequencial entre itens (Anterior/Proximo)
 - Breadcrumb para orientacao (Curso > Modulo > Item)
+- Botao de conclusao de item com atualizacao de progresso em tempo real
 - Renderizacao de HTML com suporte a:
   - Formatacao de texto (negrito, italico, alinhamento)
   - Diferentes tamanhos e tipos de fonte

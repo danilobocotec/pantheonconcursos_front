@@ -91,6 +91,7 @@ type CourseItemList = {
   tipo: string;
   conteudo: string;
   modulo_id: string;
+  modulos?: Array<{ id?: string } | string>;
 };
 
 type AdminQuestion = {
@@ -831,6 +832,9 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
   const [categoryCourseModalOpen, setCategoryCourseModalOpen] =
     React.useState(false);
   const [categoryCourseSearch, setCategoryCourseSearch] = React.useState("");
+  const [courseModuleModalOpen, setCourseModuleModalOpen] =
+    React.useState(false);
+  const [courseModuleSearch, setCourseModuleSearch] = React.useState("");
   const [expandedAssuntos, setExpandedAssuntos] = React.useState<
     Record<string, boolean>
   >({});
@@ -987,6 +991,7 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
     modulo_id: String(
       record?.modulo_id ?? record?.moduloId ?? record?.modulo ?? ""
     ),
+    modulos: Array.isArray(record?.modulos) ? record.modulos : [],
   });
 
   const loadCourseOptions = React.useCallback(async () => {
@@ -1097,13 +1102,13 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
     void loadModules();
   }, [loadModules]);
 
-  const loadItems = React.useCallback(async () => {
+  const loadItems = React.useCallback(async (): Promise<CourseItemList[]> => {
     setItemsLoading(true);
     setModuleError(null);
     try {
       const headers: Record<string, string> = { Accept: "application/json" };
       const token = getTokenOrRedirect(setModuleError);
-      if (!token) return;
+      if (!token) return [];
       headers.Authorization = `Bearer ${token}`;
       const response = await fetch(COURSE_ITEMS_URL, { headers });
       if (!response.ok) {
@@ -1117,14 +1122,18 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
         : Array.isArray(payload?.data)
         ? payload.data
         : [];
-      setItemOptions(items.map(normalizeCourseItemOption));
-      setItemList(items.map(normalizeCourseItemList));
+      const normalizedOptions = items.map(normalizeCourseItemOption);
+      const normalizedList = items.map(normalizeCourseItemList);
+      setItemOptions(normalizedOptions);
+      setItemList(normalizedList);
+      return normalizedList;
     } catch (requestError) {
       setModuleError(
         requestError instanceof Error
           ? requestError.message
           : "Erro ao carregar atividades."
       );
+      return [];
     } finally {
       setItemsLoading(false);
     }
@@ -1252,6 +1261,8 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
     setCourseImage("");
     setCourseImageName("");
     setCourseModules([]);
+    setCourseModuleModalOpen(false);
+    setCourseModuleSearch("");
     setCourseError(null);
     setCourseEditingId(null);
   };
@@ -1303,6 +1314,14 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
       course.nome.toLowerCase().includes(term)
     );
   }, [categoryCourseSearch, courseOptions]);
+
+  const filteredCourseModules = React.useMemo(() => {
+    const term = courseModuleSearch.trim().toLowerCase();
+    if (!term) return moduleOptions;
+    return moduleOptions.filter((module) =>
+      module.nome.toLowerCase().includes(term)
+    );
+  }, [courseModuleSearch, moduleOptions]);
 
   const getCategoryImagePreview = (value: string) => {
     if (!value) return "";
@@ -1606,17 +1625,39 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
     }
   };
 
-  const startEditModule = (module: CourseModuleOption) => {
-    const fallbackItemIds =
+  const startEditModule = async (module: CourseModuleOption) => {
+    const latestItems = await loadItems();
+    const itemsSource =
+      latestItems.length > 0 ? latestItems : itemList;
+    const linkedFromModule =
       module.itens_ids && module.itens_ids.length > 0
-        ? module.itens_ids
-        : itemList
-            .filter((item) => item.modulo_id === module.id)
-            .map((item) => item.id);
+        ? module.itens_ids.map((id) => String(id))
+        : [];
+    const linkedFromItems = itemsSource
+      .filter((item) => {
+        const sameModule =
+          item.modulo_id === module.id ||
+          item.modulo_id === String(module.id);
+        const itemWithModules = item as CourseItemList & {
+          modulos?: Array<{ id?: string } | string>;
+        };
+        const hasModuleRelation = Array.isArray(itemWithModules.modulos)
+          ? itemWithModules.modulos.some(
+              (modulo) =>
+                String(
+                  typeof modulo === "string" ? modulo : modulo?.id ?? ""
+                ) === String(module.id)
+            )
+          : false;
+        return sameModule || hasModuleRelation;
+      })
+      .map((item) => item.id);
     setModuleModalOpen(true);
     setModuleEditingId(module.id);
     setModuleName(module.nome || "");
-    setModuleItems(fallbackItemIds);
+    setModuleItems(
+      linkedFromModule.length > 0 ? linkedFromModule : linkedFromItems
+    );
   };
 
   const startEditCourse = (course: CourseListItem) => {
@@ -2160,29 +2201,56 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-900 mb-2">
-                Modulos
-              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="block text-sm font-semibold text-gray-900">
+                  Modulos
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCourseModuleModalOpen(true);
+                    setCourseModuleSearch("");
+                  }}
+                  className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-700"
+                >
+                  Inserir modulos
+                </button>
+              </div>
               {modulesLoading ? (
-                <p className="text-sm text-gray-500">Carregando modulos...</p>
+                <p className="text-sm text-gray-500 mt-2">
+                  Carregando modulos...
+                </p>
               ) : moduleOptions.length === 0 ? (
-                <p className="text-sm text-gray-500">Nenhum modulo disponivel.</p>
+                <p className="text-sm text-gray-500 mt-2">
+                  Nenhum modulo disponivel.
+                </p>
+              ) : courseModules.length === 0 ? (
+                <p className="text-sm text-gray-500 mt-2">
+                  Nenhum modulo selecionado.
+                </p>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {moduleOptions.map((module) => (
-                    <label
-                      key={module.id}
-                      className="flex items-center gap-2 text-sm text-gray-700"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={courseModules.includes(module.id)}
-                        onChange={() => toggleCourseModule(module.id)}
-                        className="rounded border-gray-300"
-                      />
-                      <span>{module.nome}</span>
-                    </label>
-                  ))}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {courseModules.map((moduleId) => {
+                    const module = moduleOptions.find(
+                      (entry) => entry.id === moduleId
+                    );
+                    return (
+                      <span
+                        key={moduleId}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 text-xs bg-gray-100 border border-gray-200 rounded-full"
+                      >
+                        {module?.nome || "Modulo sem nome"}
+                        <button
+                          type="button"
+                          onClick={() => toggleCourseModule(moduleId)}
+                          className="text-gray-400 hover:text-gray-600"
+                          aria-label="Remover modulo"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2208,6 +2276,92 @@ const CoursesSection = ({ onNavigate }: CoursesSectionProps) => {
                 className="px-4 py-2 text-sm bg-orange-500 text-white rounded-lg disabled:opacity-60"
               >
                 {courseSaving ? "Salvando..." : "Salvar curso"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {courseModuleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl bg-white rounded-2xl shadow-xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Inserir modulo
+              </h3>
+              <button
+                type="button"
+                onClick={() => setCourseModuleModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={courseModuleSearch}
+                onChange={(event) => setCourseModuleSearch(event.target.value)}
+                placeholder="Buscar por nome..."
+                className="flex-1 min-w-[220px] px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+              <button
+                type="button"
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg"
+              >
+                Buscar
+              </button>
+            </div>
+
+            <div className="border border-gray-200 rounded-xl max-h-72 overflow-y-auto">
+              <div className="divide-y divide-gray-100">
+                {modulesLoading ? (
+                  <p className="px-4 py-6 text-sm text-gray-500">
+                    Carregando modulos...
+                  </p>
+                ) : filteredCourseModules.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-gray-500">
+                    Nenhum modulo encontrado.
+                  </p>
+                ) : (
+                  filteredCourseModules.map((module) => {
+                    const isSelected = courseModules.includes(module.id);
+                    return (
+                      <div
+                        key={module.id}
+                        className="flex items-center justify-between px-4 py-3"
+                      >
+                        <span className="text-sm text-gray-900">
+                          {module.nome}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => toggleCourseModule(module.id)}
+                          className={`inline-flex items-center justify-center w-7 h-7 rounded-full border ${
+                            isSelected
+                              ? "border-gray-300 text-gray-300 cursor-not-allowed"
+                              : "border-blue-600 text-blue-600"
+                          }`}
+                          disabled={isSelected}
+                          title={isSelected ? "Adicionado" : "Adicionar"}
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => setCourseModuleModalOpen(false)}
+                className="px-6 py-2 text-sm bg-blue-600 text-white rounded-lg"
+              >
+                Pronto
               </button>
             </div>
           </div>
@@ -3631,7 +3785,3 @@ const normalizeQuestionCollection = (payload: unknown): AdminQuestion[] => {
 };
 
 export default AdminDashboard;
-
-
-
-

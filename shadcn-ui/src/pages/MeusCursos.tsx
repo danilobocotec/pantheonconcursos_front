@@ -389,7 +389,7 @@ const ItemList = styled.div<{ isExpanded: boolean }>`
 
 const ItemRow = styled.div<{ completed: boolean }>`
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   padding: 12px 16px 12px 44px;
   border-top: 1px solid ${props => props.theme.colors.border};
   cursor: pointer;
@@ -541,8 +541,36 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const normalizeLabel = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ª/g, 'a')
+      .replace(/º/g, 'o')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const PHASE_CATEGORY_LABELS = {
+    '1fase': 'oab 1a fase anual',
+    '2fase': 'oab 2a fase anual',
+  } as const;
+
   useEffect(() => {
     loadData();
+
+    // Escutar eventos de conclusão de itens
+    const handleItemCompleted = (event: any) => {
+      console.log('Item completed event:', event.detail);
+      loadData(); // Recarregar dados para atualizar o progresso
+    };
+
+    window.addEventListener('item-completed', handleItemCompleted);
+
+    return () => {
+      window.removeEventListener('item-completed', handleItemCompleted);
+    };
   }, []);
 
   const loadData = async () => {
@@ -550,20 +578,45 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
       setLoading(true);
       setError(null);
 
-      // Buscar dados usando a função autenticada
-      const [categoriesData, coursesData, modulesData, itemsData] = await Promise.all([
+      // Buscar dados usando 4 endpoints (categorias, cursos, módulos e itens)
+      const [categoriesData, cursosData, modulesData, itemsData] = await Promise.all([
         authenticatedGet('/cursos/categorias'),
         authenticatedGet('/cursos'),
         authenticatedGet('/meus-cursos/modulos'),
         authenticatedGet('/meus-cursos/itens'),
       ]);
 
-      setCategories(categoriesData);
+      const derivedCategories = (Array.isArray(categoriesData) && categoriesData.length > 0)
+        ? categoriesData
+        : (Array.isArray(cursosData)
+          ? cursosData
+              .map(curso => curso?.categoria || { id: curso?.categoria_id, nome: curso?.categoria_nome })
+              .filter(categoria => categoria && categoria.id)
+              .map(categoria => ({
+                ...categoria,
+                id: String(categoria.id),
+                nome: categoria.nome || 'Categoria sem nome'
+              }))
+          : []);
+
+      setCategories(derivedCategories);
       setModules(modulesData);
       setItems(itemsData);
 
+      // Debug: verificar dados recebidos
+      console.log('Dados recebidos:', {
+        categorias: categoriesData.length,
+        modulos: modulesData.length,
+        itens: itemsData.length
+      });
+      console.log('Categorias:', categoriesData);
+      console.log('Módulos completos:', modulesData);
+      console.log('Estrutura do primeiro módulo:', modulesData[0]);
+      console.log('Itens:', itemsData);
+
       // Organizar dados por categoria (1ª e 2ª fase)
-      const organized = organizeCoursesByCategory(coursesData, categoriesData, modulesData, itemsData);
+      const organized = organizeCoursesByCategory(derivedCategories, cursosData, modulesData, itemsData);
+      console.log('Cursos organizados:', organized);
       setCourses(organized);
 
     } catch (err: any) {
@@ -587,39 +640,98 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
     }
   };
 
-  const organizeCoursesByCategory = (coursesData: any[], categoriesData: any[], modulesData: any[], itemsData: any[]) => {
-    return coursesData.map(course => {
-      // Buscar módulos do curso
-      const courseModules = modulesData.filter(m =>
-        course.modulos?.includes(m.id)
-      );
+  const organizeCoursesByCategory = (categoriesData: any[], cursosData: any[], modulesData: any[], itemsData: any[]) => {
+    const completedItems = JSON.parse(localStorage.getItem('pantheon:completed-items') || '[]');
 
-      // Para cada módulo, buscar seus itens
-      const modulesWithItems = courseModules.map(module => {
-        const moduleItems = itemsData.filter(item =>
-          item.modulo_id === module.id
-        ).map(item => ({
-          ...item,
-          completed: false // TODO: buscar progresso do usuário
-        }));
+    console.log('=== INICIO organizeCoursesByCategory ===');
+    console.log('Total de categorias:', categoriesData.length);
+    console.log('Total de cursos:', cursosData.length);
+    console.log('Total de modulos:', modulesData.length);
+    console.log('Total de itens:', itemsData.length);
 
+    const itemsByModuleId = new Map<string, Item[]>();
+
+    itemsData.forEach((item: any) => {
+      const moduleIds: string[] = [];
+
+      if (item.modulo_id) {
+        moduleIds.push(String(item.modulo_id));
+      }
+
+      if (Array.isArray(item.modulos)) {
+        item.modulos.forEach((modulo: any) => {
+          const moduloId = modulo?.id ?? modulo;
+          if (moduloId) {
+            moduleIds.push(String(moduloId));
+          }
+        });
+      }
+
+      const uniqueModuleIds = Array.from(new Set(moduleIds));
+      if (uniqueModuleIds.length === 0) return;
+
+      const normalizedItem: Item = {
+        id: String(item.id ?? ''),
+        titulo: item.titulo || item.nome || 'Item sem titulo',
+        tipo: item.tipo || '',
+        conteudo: item.conteudo || '',
+        completed: completedItems.includes(item.id)
+      };
+
+      uniqueModuleIds.forEach((moduleId) => {
+        const existing = itemsByModuleId.get(moduleId) || [];
+        existing.push(normalizedItem);
+        itemsByModuleId.set(moduleId, existing);
+      });
+    });
+
+    const allCourses = (Array.isArray(cursosData) ? cursosData : []).map((curso: any) => {
+      const courseId = String(curso?.id ?? '');
+      const courseCategoryId = String(curso?.categoria_id ?? curso?.categoria?.id ?? '');
+      const courseModulesSource = Array.isArray(curso?.modulos) && curso.modulos.length > 0
+        ? curso.modulos
+        : (Array.isArray(modulesData)
+          ? modulesData.filter((moduleData: any) => String(moduleData?.curso_id ?? '') === courseId)
+          : []);
+
+      const modulos = courseModulesSource.map((moduleData: any) => {
+        const moduleId = String(moduleData?.id ?? '');
+        const moduleItems = itemsByModuleId.get(moduleId) || [];
+        const orderedIds = Array.isArray(moduleData?.itens_ids)
+          ? moduleData.itens_ids.map((id: any) => String(id))
+          : Array.isArray(moduleData?.itens)
+          ? moduleData.itens.map((item: any) => String(item?.id ?? item))
+          : [];
+        const moduleItemsById = new Map(moduleItems.map((item) => [String(item.id), item]));
+        const sortedModuleItems =
+          orderedIds.length > 0
+            ? orderedIds
+                .map((id: string) => moduleItemsById.get(id))
+                .filter((item: Item | undefined): item is Item => Boolean(item))
+            : moduleItems;
         return {
-          ...module,
-          itens: moduleItems,
-          progress: calculateModuleProgress(moduleItems),
+          ...moduleData,
+          id: moduleId,
+          nome: moduleData?.nome || moduleData?.modulo || 'Modulo sem nome',
+          itens: sortedModuleItems,
+          progress: calculateModuleProgress(sortedModuleItems),
           isExpanded: false
         };
       });
 
       return {
-        id: course.id,
-        nome: course.nome,
-        categoria_id: course.categoria_id,
-        modulos: modulesWithItems,
-        progress: calculateCourseProgress(modulesWithItems),
+        id: courseId,
+        nome: curso?.nome || curso?.titulo || 'Curso sem nome',
+        categoria_id: courseCategoryId,
+        modulos,
+        progress: calculateCourseProgress(modulos),
         isExpanded: false
       };
     });
+
+    console.log('=== FIM organizeCoursesByCategory ===');
+    console.log('Total de cursos criados:', allCourses.length);
+    return allCourses;
   };
 
   const calculateModuleProgress = (items: any[]) => {
@@ -666,41 +778,75 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
   };
 
   const getFilteredCourses = () => {
-    const fase1Category = categories.find(c => c.nome.toLowerCase().includes('1') || c.nome.toLowerCase().includes('primeira'));
-    const fase2Category = categories.find(c => c.nome.toLowerCase().includes('2') || c.nome.toLowerCase().includes('segunda'));
+    const targetLabel = PHASE_CATEGORY_LABELS[activePhase];
+    const normalizedTarget = normalizeLabel(targetLabel);
+    const exactMatch = categories.find(c => normalizeLabel(c.nome || '') === normalizedTarget);
+    const containsMatch = categories.find(c => normalizeLabel(c.nome || '').includes(normalizedTarget));
+    const fallbackTerms = activePhase === '1fase'
+      ? { required: ['oab', 'fase'], anyOf: ['1a', '1', 'primeira'] }
+      : { required: ['oab', 'fase'], anyOf: ['2a', '2', 'segunda'] };
+    const fallbackMatch = categories.find((c: any) => {
+      const normalized = normalizeLabel(c.nome || '');
+      return fallbackTerms.required.every(term => normalized.includes(term))
+        && fallbackTerms.anyOf.some(term => normalized.includes(term));
+    });
+    const phaseCategory = exactMatch || containsMatch || fallbackMatch;
 
-    if (activePhase === '1fase' && fase1Category) {
-      return courses.filter(c => c.categoria_id === fase1Category.id);
-    } else if (activePhase === '2fase' && fase2Category) {
-      return courses.filter(c => c.categoria_id === fase2Category.id);
+    console.log('Filtro de categorias:', {
+      phaseCategory,
+      activePhase,
+      totalCourses: courses.length
+    });
+
+    if (!phaseCategory) {
+      console.log('Categoria da fase nao encontrada.');
+      return [];
     }
 
-    return courses;
+    const filtered = courses.filter(c =>
+      c.categoria_id === phaseCategory.id ||
+      c.categoria_id === String(phaseCategory.id)
+    );
+    console.log(`Cursos filtrados (${activePhase}):`, filtered.length);
+    return filtered;
   };
 
-  const renderCourse = (course: Course) => (
-    <CourseCard key={course.id} isExpanded={course.isExpanded || false}>
-      <CourseHeader onClick={() => toggleCourse(course.id)}>
-        <div className="icon">
-          {course.isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-        </div>
-        <div className="info">
-          <div className="name">{course.nome}</div>
-          <div className="meta">
-            <span>{course.modulos?.length || 0} módulos</span>
-            <span>{course.modulos?.reduce((acc, m) => acc + (m.itens?.filter(i => i.completed).length || 0), 0)} concluídas</span>
+  const renderCourse = (course: Course) => {
+    console.log('Renderizando curso:', {
+      nome: course.nome,
+      modulosCount: course.modulos?.length || 0,
+      isExpanded: course.isExpanded
+    });
+
+    return (
+      <CourseCard key={course.id} isExpanded={course.isExpanded || false}>
+        <CourseHeader onClick={() => toggleCourse(course.id)}>
+          <div className="icon">
+            {course.isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </div>
-        </div>
-        <div className="progress">
-          <div className="percentage">{course.progress}%</div>
-        </div>
-      </CourseHeader>
+          <div className="info">
+            <div className="name">{course.nome}</div>
+            <div className="meta">
+              <span>{course.modulos?.length || 0} módulos</span>
+              <span>{course.modulos?.reduce((acc, m) => acc + (m.itens?.filter(i => i.completed).length || 0), 0)} concluídas</span>
+            </div>
+          </div>
+          <div className="progress">
+            <div className="percentage">{course.progress}%</div>
+          </div>
+        </CourseHeader>
 
-      <CourseContent isExpanded={course.isExpanded || false}>
-        <ProgressBar progress={course.progress} />
+        <CourseContent isExpanded={course.isExpanded || false}>
+          <ProgressBar progress={course.progress} />
 
-        <ModuleList>
-          {course.modulos?.map(module => (
+          <ModuleList>
+            {course.modulos && course.modulos.length > 0 ? (
+              course.modulos.map(module => {
+                console.log('Renderizando módulo:', {
+                  nome: module.nome,
+                  itensCount: module.itens?.length || 0
+                });
+                return (
             <ModuleItem key={module.id} isExpanded={module.isExpanded || false}>
               <ModuleHeader onClick={() => toggleModule(course.id, module.id)}>
                 <div className="icon">
@@ -720,7 +866,11 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
 
               <ItemList isExpanded={module.isExpanded || false}>
                 {module.itens?.map((item: Item) => (
-                  <ItemRow key={item.id} completed={item.completed}>
+                  <ItemRow
+                    key={item.id}
+                    completed={item.completed}
+                    onClick={() => handleItemClick(course, module, item)}
+                  >
                     <div className="status-icon">
                       {item.completed ? <CheckCircle size={16} /> : <Clock size={16} />}
                     </div>
@@ -738,11 +888,18 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
                 ))}
               </ItemList>
             </ModuleItem>
-          ))}
-        </ModuleList>
-      </CourseContent>
-    </CourseCard>
-  );
+                );
+              })
+            ) : (
+              <div style={{ padding: '16px', textAlign: 'center', color: '#888' }}>
+                Nenhum módulo cadastrado
+              </div>
+            )}
+          </ModuleList>
+        </CourseContent>
+      </CourseCard>
+    );
+  };
 
   if (loading) {
     return (
@@ -804,3 +961,5 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
 };
 
 export default MeusCursos;
+
+
