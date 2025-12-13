@@ -59,6 +59,83 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
   const [loginModalOpen, setLoginModalOpen] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
   const [rememberMe, setRememberMe] = React.useState(false);
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [loginLoading, setLoginLoading] = React.useState(false);
+  const [loginError, setLoginError] = React.useState("");
+
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!email || !password) {
+      setLoginError("Informe e-mail e senha.");
+      return;
+    }
+
+    setLoginError("");
+    setLoginLoading(true);
+
+    try {
+      const response = await fetch("http://localhost:8080/api/v1/auth/login", {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(
+          message || "Não foi possível autenticar. Verifique suas credenciais."
+        );
+      }
+
+      const data = await response.json();
+      const role = (
+        data?.user?.role ||
+        data?.role ||
+        data?.user?.profile ||
+        ""
+      )
+        .toString()
+        .toLowerCase();
+      const isAdmin = role.includes("admin");
+
+      if (typeof window !== "undefined") {
+        if (data?.token || data?.accessToken) {
+          window.localStorage.setItem(
+            "pantheon:token",
+            data?.token || data?.accessToken
+          );
+        }
+        window.localStorage.setItem("pantheon:isAdmin", String(isAdmin));
+        if (role) {
+          window.localStorage.setItem("pantheon:role", role);
+        }
+        if (rememberMe) {
+          window.localStorage.setItem("pantheon:lastEmail", email);
+        } else {
+          window.localStorage.removeItem("pantheon:lastEmail");
+        }
+      }
+
+      setLoginModalOpen(false);
+      setEmail("");
+      setPassword("");
+      setRememberMe(false);
+      onNavigate?.(isAdmin ? "admin-dashboard" : "visao-geral");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Erro inesperado ao autenticar.";
+      setLoginError(message);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -92,6 +169,12 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 className="text-gray-700 hover:text-orange-600 transition-colors font-medium"
               >
                 Quero ser aprovada
+              </button>
+              <button
+                onClick={() => onNavigate?.("admin-dashboard")}
+                className="text-gray-700 hover:text-orange-600 transition-colors font-medium"
+              >
+                Área Admin
               </button>
             </nav>
 
@@ -133,6 +216,12 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 className="block text-left w-full text-gray-700 hover:text-orange-600 transition-colors font-medium"
               >
                 Quero ser aprovada
+              </button>
+              <button
+                onClick={() => onNavigate?.("admin-dashboard")}
+                className="block text-left w-full text-gray-700 hover:text-orange-600 transition-colors font-medium"
+              >
+                Área Admin
               </button>
               <button
                 className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-3 rounded-lg font-semibold"
@@ -194,14 +283,18 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 </div>
               </div>
 
-              <form className="space-y-4">
+              <form className="space-y-4" onSubmit={handleLogin}>
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">
                     Email:
                   </label>
                   <input
                     type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    disabled={loginLoading}
+                    autoComplete="email"
                   />
                 </div>
 
@@ -212,12 +305,17 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   <div className="relative">
                     <input
                       type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent pr-12"
+                      disabled={loginLoading}
+                      autoComplete="current-password"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-70"
+                      disabled={loginLoading}
                     >
                       {showPassword ? (
                         <EyeOff className="w-5 h-5" />
@@ -235,6 +333,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
                     className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                    disabled={loginLoading}
                   />
                   <label
                     htmlFor="rememberMe"
@@ -260,11 +359,18 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   </a>
                 </div>
 
+                {loginError && (
+                  <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    {loginError}
+                  </div>
+                )}
+
                 <button
                   type="submit"
-                  className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                  className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+                  disabled={loginLoading}
                 >
-                  Entrar
+                  {loginLoading ? "Entrando..." : "Entrar"}
                 </button>
               </form>
             </div>
