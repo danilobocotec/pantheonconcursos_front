@@ -20,11 +20,6 @@ import {
   AlertCircle,
   CheckCircle,
 } from "lucide-react";
-import {
-  DEFAULT_VADE_PRIORITY,
-  loadVadePriority,
-  saveVadePriority,
-} from "../constants/vadeMecum";
 
 type AdminDashboardProps = {
   onNavigate?: (page: string) => void;
@@ -65,6 +60,7 @@ type VadeMecumCode = {
   status: string;
   updatedAt?: string;
   createdAt?: string;
+  grupo?: string;
 };
 
 type VadeMecumGroup = {
@@ -140,7 +136,8 @@ const DEFAULT_FORM: VadeMecumFormData = {
 const TOKEN_KEY = "pantheon:token";
 const VADE_API_URL = "http://localhost:8080/api/v1/vade-mecum/codigos";
 const VADE_IMPORT_URL = `${VADE_API_URL}/import`;
-const PRIORITY_LIMIT = DEFAULT_VADE_PRIORITY.length;
+const VADE_CAPAS_API_URL = `${VADE_API_URL}/capas`;
+const PRIORITY_LIMIT = 9;
 
 const AdminDashboard = ({ onNavigate }: AdminDashboardProps) => {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
@@ -302,9 +299,8 @@ const VadeMecumSection = () => {
   const [showForm, setShowForm] = React.useState<boolean>(false);
   const [editingCode, setEditingCode] = React.useState<VadeMecumCode | null>(null);
   const [formData, setFormData] = React.useState<VadeMecumFormData>(DEFAULT_FORM);
-  const [priorityOrder, setPriorityOrder] = React.useState<string[]>(() =>
-    loadVadePriority().slice(0, PRIORITY_LIMIT)
-  );
+  const [priorityItems, setPriorityItems] = React.useState<VadeMecumCode[]>([]);
+  const [priorityLoading, setPriorityLoading] = React.useState(false);
   const [feedback, setFeedback] = React.useState<{ type: "success" | "error"; message: string } | null>(
     null
   );
@@ -362,47 +358,90 @@ const VadeMecumSection = () => {
     fetchCodes();
   }, [fetchCodes]);
 
+  const fetchPriorityOrder = React.useCallback(async () => {
+    setPriorityLoading(true);
+    try {
+      const response = await fetch(VADE_CAPAS_API_URL, {
+        headers: toHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`Falha ao carregar prioridade (${response.status})`);
+      }
+      const payload = await safeJson(response);
+      const collection = normalizeCollection(payload)
+        .sort((a, b) => {
+          const aGrupo = Number(a.grupo) || Number.MAX_SAFE_INTEGER;
+          const bGrupo = Number(b.grupo) || Number.MAX_SAFE_INTEGER;
+          return aGrupo - bGrupo;
+        })
+        .slice(0, PRIORITY_LIMIT);
+      setPriorityItems(collection);
+    } catch (err) {
+      console.error(err);
+      showMessage(
+        "error",
+        err instanceof Error ? err.message : "Erro ao carregar prioridade"
+      );
+    } finally {
+      setPriorityLoading(false);
+    }
+  }, [showMessage, toHeaders]);
+
+  const updateCoverPriority = React.useCallback(
+    async (codeId: string, grupoValue: number) => {
+      const response = await fetch(`${VADE_CAPAS_API_URL}/${codeId}`, {
+        method: "PUT",
+        headers: toHeaders(),
+        body: JSON.stringify({ grupo: String(grupoValue) }),
+      });
+      if (!response.ok) {
+        throw new Error(`Falha ao atualizar prioridade (${response.status})`);
+      }
+    },
+    [toHeaders]
+  );
+
+  React.useEffect(() => {
+    fetchPriorityOrder();
+  }, [fetchPriorityOrder]);
+
   React.useEffect(() => {
     if (!feedback) return;
     const timer = window.setTimeout(() => setFeedback(null), 4000);
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
-  React.useEffect(() => {
-    const handler = () => {
-      setPriorityOrder(loadVadePriority().slice(0, PRIORITY_LIMIT));
-    };
-    if (typeof window !== "undefined") {
-      window.addEventListener("pantheon-vade-priority-changed", handler);
-    }
-    return () => {
-      if (typeof window !== "undefined") {
-        window.removeEventListener("pantheon-vade-priority-changed", handler);
-      }
-    };
-  }, []);
-
   const handleMove = React.useCallback(
-    (index: number, direction: -1 | 1) => {
-      setPriorityOrder((current) => {
-        const next = [...current];
-        const target = index + direction;
-        if (target < 0 || target >= next.length) return current;
-        [next[index], next[target]] = [next[target], next[index]];
-        saveVadePriority(next);
+    async (index: number, direction: -1 | 1) => {
+      const target = index + direction;
+      if (target < 0 || target >= priorityItems.length) return;
+      setPriorityLoading(true);
+      const reordered = [...priorityItems];
+      [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+      try {
+        for (let i = 0; i < reordered.length; i += 1) {
+          const item = reordered[i];
+          await updateCoverPriority(item.id, i + 1);
+        }
         showMessage("success", "Prioridade atualizada");
-        return next;
-      });
+        await fetchPriorityOrder();
+      } catch (err) {
+        console.error(err);
+        showMessage(
+          "error",
+          err instanceof Error ? err.message : "Erro ao atualizar prioridade"
+        );
+      } finally {
+        setPriorityLoading(false);
+      }
     },
-    [showMessage]
+    [fetchPriorityOrder, priorityItems, showMessage, updateCoverPriority]
   );
 
-  const handleResetPriority = React.useCallback(() => {
-    const restored = DEFAULT_VADE_PRIORITY.slice(0, PRIORITY_LIMIT);
-    setPriorityOrder(restored);
-    saveVadePriority(restored);
-    showMessage("success", "Prioridade restaurada");
-  }, [showMessage]);
+  const handleResetPriority = React.useCallback(async () => {
+    await fetchPriorityOrder();
+    showMessage("success", "Prioridade recarregada");
+  }, [fetchPriorityOrder, showMessage]);
 
   const handleFormChange = React.useCallback(
     (field: keyof VadeMecumFormData, value: string) => {
@@ -584,15 +623,22 @@ const VadeMecumSection = () => {
   }, [codes, searchTerm, selectedGroup, statusFilter]);
 
   const priorityCards = React.useMemo(() => {
-    return priorityOrder.slice(0, PRIORITY_LIMIT).map((title) => {
-      const match = codes.find((code) => code.nomecodigo === title);
-      return {
-        title,
-        subtitle: match?.normativo || "Definido manualmente",
-        updatedAt: match?.updatedAt,
-      };
+    return priorityItems.map((item, index) => ({
+      id: item.id,
+      title: item.nomecodigo || `Prioridade ${index + 1}`,
+      subtitle: item.normativo || "Definido manualmente",
+      updatedAt: item.updatedAt,
+      position: index + 1,
+    }));
+  }, [priorityItems]);
+
+  const priorityMap = React.useMemo(() => {
+    const map = new Map<string, number>();
+    priorityItems.forEach((item, index) => {
+      map.set(item.id, index + 1);
     });
-  }, [codes, priorityOrder]);
+    return map;
+  }, [priorityItems]);
 
   const selectedGroupData = React.useMemo(() => {
     if (!selectedGroup) return null;
@@ -809,7 +855,8 @@ const VadeMecumSection = () => {
 
                   {!loading && !error &&
                     filteredCodes.map((code) => {
-                      const active = priorityOrder.includes(code.nomecodigo);
+                      const priorityNumber = priorityMap.get(code.id);
+                      const active = typeof priorityNumber === "number";
                       return (
                         <tr key={code.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
@@ -852,7 +899,7 @@ const VadeMecumSection = () => {
                                     : "border-gray-200 text-gray-500"
                                 }`}
                               >
-                                {active ? "Prioritario" : "Catalogado"}
+                                {active ? `Prioridade #${priorityNumber}` : "Catalogado"}
                               </span>
                             </div>
                           </td>
@@ -869,11 +916,13 @@ const VadeMecumSection = () => {
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Prioridade</h3>
-              <button
-                type="button"
-                onClick={handleResetPriority}
-                className="inline-flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-gray-900"
-              >
+            <button
+              type="button"
+              onClick={() => {
+                void handleResetPriority();
+              }}
+              className="inline-flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-gray-900"
+            >
                 <RotateCcw className="w-4 h-4" />
                 Restaurar
               </button>
@@ -883,13 +932,19 @@ const VadeMecumSection = () => {
             </p>
 
             <div className="mt-4 space-y-3">
+              {priorityLoading && priorityCards.length === 0 && (
+                <p className="text-sm text-gray-500">Carregando prioridades...</p>
+              )}
+              {!priorityLoading && priorityCards.length === 0 && (
+                <p className="text-sm text-gray-500">Nenhuma prioridade configurada.</p>
+              )}
               {priorityCards.map((card, index) => (
                 <div
-                  key={`${card.title}-${index}`}
+                  key={`${card.id}-${index}`}
                   className="border border-gray-200 rounded-lg p-3 flex items-start justify-between gap-3"
                 >
                   <div>
-                    <p className="text-xs font-semibold text-gray-500">#{index + 1}</p>
+                    <p className="text-xs font-semibold text-gray-500">#{card.position}</p>
                     <p className="text-sm font-semibold text-gray-900">{card.title}</p>
                     <p className="text-xs text-gray-500 truncate">
                       {card.subtitle || "Definido manualmente"}
@@ -903,7 +958,10 @@ const VadeMecumSection = () => {
                   <div className="flex flex-col gap-1">
                     <button
                       type="button"
-                      onClick={() => handleMove(index, -1)}
+                      onClick={() => {
+                        void handleMove(index, -1);
+                      }}
+                      disabled={priorityLoading}
                       className="p-1 rounded border border-gray-200 text-gray-600 hover:border-gray-300"
                       title="Mover para cima"
                     >
@@ -911,7 +969,10 @@ const VadeMecumSection = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleMove(index, 1)}
+                      onClick={() => {
+                        void handleMove(index, 1);
+                      }}
+                      disabled={priorityLoading}
                       className="p-1 rounded border border-gray-200 text-gray-600 hover:border-gray-300"
                       title="Mover para baixo"
                     >
