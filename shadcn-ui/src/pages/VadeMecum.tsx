@@ -72,6 +72,26 @@ type VadeMecumJurisprudenceGroup = {
   quantidade?: number;
 };
 
+type VadeMecumLawGroup = {
+  id: string;
+  nomecodigo: string;
+  descricao?: string;
+  quantidade?: number;
+};
+
+type VadeMecumLawArticle = {
+  id: string;
+  numero?: string;
+  texto: string;
+};
+
+type VadeMecumLawDetail = {
+  tipo?: string;
+  nomecodigo: string;
+  titulo?: string;
+  artigos: VadeMecumLawArticle[];
+};
+
 const TOKEN_KEY = "pantheon:token";
 const VADE_CAPAS_API_URL =
   "http://localhost:8080/api/v1/vade-mecum/codigos/capas";
@@ -81,6 +101,9 @@ const VADE_JURIS_GROUPED_API_URL =
   "http://localhost:8080/api/v1/vade-mecum/jurisprudencia/grouped";
 const VADE_JURIS_API_URL =
   "http://localhost:8080/api/v1/vade-mecum/jurisprudencia";
+const VADE_LAWS_GROUPED_API_URL =
+  "http://localhost:8080/api/v1/vade-mecum/leis/gruposervico";
+const VADE_LAWS_API_URL = "http://localhost:8080/api/v1/vade-mecum/leis";
 
 const VadeMecumContainer = styled.div`
   padding: 24px;
@@ -523,6 +546,14 @@ const VadeMecum: React.FC = () => {
   const [selectedJurisprudenceItems, setSelectedJurisprudenceItems] = React.useState<VadeMecumJurisprudence[]>([]);
   const [selectedJurisprudenceLoading, setSelectedJurisprudenceLoading] = React.useState(false);
   const [selectedJurisprudenceError, setSelectedJurisprudenceError] = React.useState<string | null>(null);
+  const [lawGroups, setLawGroups] = React.useState<VadeMecumLawGroup[]>([]);
+  const [lawLoading, setLawLoading] = React.useState(false);
+  const [lawError, setLawError] = React.useState<string | null>(null);
+  const isLawDetail = React.useMemo(
+    () => Boolean(selectedGroupKey?.startsWith("law-")),
+    [selectedGroupKey]
+  );
+  const [selectedLawDetail, setSelectedLawDetail] = React.useState<VadeMecumLawDetail | null>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
 
   const normalizeText = React.useCallback((value: string) => {
@@ -606,6 +637,35 @@ const VadeMecum: React.FC = () => {
     void loadJurisprudenceGroups();
   }, [loadJurisprudenceGroups]);
 
+  const loadLawGroups = React.useCallback(async () => {
+    setLawLoading(true);
+    setLawError(null);
+    try {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(TOKEN_KEY)
+          : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(VADE_LAWS_GROUPED_API_URL, { headers });
+      if (!response.ok) {
+        throw new Error(`Falha ao carregar leis (${response.status})`);
+      }
+      const payload = await response.json();
+      setLawGroups(normalizeLawGroups(payload));
+    } catch (requestError) {
+      setLawError(
+        requestError instanceof Error ? requestError.message : "Erro ao carregar leis."
+      );
+    } finally {
+      setLawLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void loadLawGroups();
+  }, [loadLawGroups]);
+
   const openJurisprudenceGroup = React.useCallback(
     (nomecodigo: string) => {
       const trimmed = nomecodigo?.trim();
@@ -614,6 +674,7 @@ const VadeMecum: React.FC = () => {
       setSelectedGroup(null);
       setSelectedGroupCodes([]);
       setSelectedError(null);
+      setSelectedLawDetail(null);
       setSelectedJurisprudenceName(trimmed);
       setSelectedJurisprudenceItems([]);
       setSelectedJurisprudenceError(null);
@@ -821,12 +882,14 @@ const VadeMecum: React.FC = () => {
   }, [codes]);
 
   React.useEffect(() => {
-    if (selectedGroupKey && !groupedCodes.some((group) => group.key === selectedGroupKey)) {
+    if (!selectedGroupKey) return;
+    if (isLawDetail) return;
+    if (!groupedCodes.some((group) => group.key === selectedGroupKey)) {
       setSelectedGroupKey(null);
       setSelectedGroup(null);
       setSelectedGroupCodes([]);
     }
-  }, [groupedCodes, selectedGroupKey]);
+  }, [groupedCodes, isLawDetail, selectedGroupKey]);
 
   const groupsByTipo = React.useMemo(() => {
     const buckets = groupedCodes.reduce<Record<string, VadeMecumGroup[]>>(
@@ -866,6 +929,50 @@ const VadeMecum: React.FC = () => {
     if (firstAvailable) setActiveTab(firstAvailable.id);
   }, [activeTab, groupsByTipo, loading, tabMatchesTipo, tabs]);
 
+  const fetchCodesForNomecodigo = React.useCallback(
+    async (nomecodigo: string) => {
+      const trimmedName = nomecodigo?.trim();
+      if (!trimmedName) return;
+      setSelectedLoading(true);
+      setSelectedError(null);
+      try {
+        const headers: Record<string, string> = { Accept: "application/json" };
+        const token =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem(TOKEN_KEY)
+            : null;
+        if (token) headers.Authorization = `Bearer ${token}`;
+
+        const url = `${VADE_CODIGOS_API_URL}?nomecodigo=${encodeURIComponent(
+          trimmedName
+        )}`;
+        let response = await fetch(url, { headers });
+        if ((response.status === 401 || response.status === 403) && token) {
+          response = await fetch(url, { headers: { Accept: "application/json" } });
+        }
+        if (!response.ok) {
+          throw new Error(`Falha ao carregar detalhes (${response.status})`);
+        }
+        const payload = await response.json();
+        const loaded = normalizeCollection(payload);
+        const normalizedNomecodigo = normalizeText(trimmedName);
+        const matching = loaded.filter(
+          (code) => normalizeText(code.nomecodigo) === normalizedNomecodigo
+        );
+        setSelectedGroupCodes(matching);
+      } catch (detailError) {
+        setSelectedError(
+          detailError instanceof Error
+            ? detailError.message
+            : "Erro ao carregar detalhes."
+        );
+      } finally {
+        setSelectedLoading(false);
+      }
+    },
+    [normalizeText]
+  );
+
   const openGroup = (groupKey: string) => {
     const group = groupedCodes.find((entry) => entry.key === groupKey) || null;
     if (!group) return;
@@ -873,6 +980,7 @@ const VadeMecum: React.FC = () => {
     setSelectedGroupKey(group.key);
     setSelectedGroup(group);
     setSelectedGroupCodes(group.codes);
+    setSelectedLawDetail(null);
     setArticleQuery("");
     setFocusedArticleId(null);
     setSelectedJurisprudenceName(null);
@@ -887,9 +995,16 @@ const VadeMecum: React.FC = () => {
       group.label;
     if (!nomecodigo?.trim()) return;
 
-    const fetchDetail = async () => {
+    void fetchCodesForNomecodigo(nomecodigo);
+  };
+
+  const loadLawDetail = React.useCallback(
+    async (nomecodigo: string, fallbackTitulo?: string) => {
+      const trimmed = nomecodigo?.trim();
+      if (!trimmed) return;
       setSelectedLoading(true);
       setSelectedError(null);
+      setSelectedLawDetail(null);
       try {
         const headers: Record<string, string> = { Accept: "application/json" };
         const token =
@@ -897,43 +1012,98 @@ const VadeMecum: React.FC = () => {
             ? window.localStorage.getItem(TOKEN_KEY)
             : null;
         if (token) headers.Authorization = `Bearer ${token}`;
-
-        const url = `${VADE_CODIGOS_API_URL}?nomecodigo=${encodeURIComponent(
-          nomecodigo
-        )}`;
-        let response = await fetch(url, { headers });
-        if ((response.status === 401 || response.status === 403) && token) {
-          response = await fetch(url, { headers: { Accept: "application/json" } });
-        }
+        const response = await fetch(
+          `${VADE_LAWS_API_URL}?nomecodigo=${encodeURIComponent(trimmed)}`,
+          { headers }
+        );
         if (!response.ok) {
-          throw new Error(`Falha ao carregar detalhes (${response.status})`);
+          throw new Error(`Falha ao carregar leis (${response.status})`);
         }
         const payload = await response.json();
-        const loaded = normalizeCollection(payload);
-        const normalizedNomecodigo = normalizeText(nomecodigo);
-        const matching = loaded.filter(
-          (code) => normalizeText(code.nomecodigo) === normalizedNomecodigo
+        const records = normalizeLawDetailRecords(payload);
+        const normalizedNomecodigo = normalizeText(trimmed);
+        const matches = records.filter(
+          (record) =>
+            normalizeText(record.nomecodigo) === normalizedNomecodigo &&
+            Boolean(record.texto)
         );
-        if (matching.length > 0) setSelectedGroupCodes(matching);
+        const fallbackMatches = records.filter((record) => Boolean(record.texto));
+        const effectiveRecords =
+          matches.length > 0
+            ? matches
+            : fallbackMatches.length > 0
+            ? fallbackMatches
+            : records;
+        if (effectiveRecords.length === 0) {
+          throw new Error("Lei não encontrada para o código informado.");
+        }
+        const detail = effectiveRecords[0];
+        const artigos = effectiveRecords.map((record, index) => ({
+          id: record.id || `law-article-${index}`,
+          numero: record.numero,
+          texto: record.texto || "-",
+        }));
+        setSelectedLawDetail({
+          tipo: detail.tipo,
+          nomecodigo: detail.nomecodigo || trimmed,
+          titulo: detail.titulo || fallbackTitulo || "",
+          artigos,
+        });
       } catch (detailError) {
         setSelectedError(
           detailError instanceof Error
             ? detailError.message
-            : "Erro ao carregar detalhes."
+            : "Erro ao carregar leis."
         );
       } finally {
         setSelectedLoading(false);
       }
-    };
+    },
+    [normalizeText]
+  );
 
-    void fetchDetail();
-  };
+  const openLawGroup = React.useCallback(
+    (groupData: VadeMecumLawGroup) => {
+      const trimmed = groupData?.nomecodigo?.trim();
+      if (!trimmed) return;
+      const normalized = normalizeText(trimmed);
+      const baseKey = groupData?.id
+        ? `law-${groupData.id}`
+        : `law-${normalized}`;
+      const baseGroup: VadeMecumGroup = {
+        key: baseKey,
+        tipo: "Leis",
+        label: trimmed,
+        description: groupData?.descricao || trimmed,
+        codes: [],
+      };
+
+      setLawError(null);
+      setSelectedGroupKey(baseGroup.key);
+      setSelectedGroup(baseGroup);
+      setSelectedGroupCodes([]);
+      setSelectedLawDetail(null);
+      setSelectedError(null);
+      setArticleQuery("");
+      setFocusedArticleId(null);
+      setSelectedJurisprudenceName(null);
+      setSelectedJurisprudenceItems([]);
+      setSelectedJurisprudenceError(null);
+      if (isMobile) {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      void loadLawDetail(trimmed, groupData?.descricao || trimmed);
+    },
+    [isMobile, loadLawDetail, normalizeText]
+  );
 
   const resetDetail = () => {
     setSelectedGroupKey(null);
     setSelectedGroup(null);
     setSelectedGroupCodes([]);
     setSelectedError(null);
+    setSelectedLawDetail(null);
     setArticleQuery("");
     setFocusedArticleId(null);
     setSelectedJurisprudenceName(null);
@@ -1047,6 +1217,45 @@ const VadeMecum: React.FC = () => {
       .filter((group) => group.items.length > 0);
   }, [articleQuery, filterGroups]);
 
+  const lawFilterGroups = React.useMemo(() => {
+    if (!selectedLawDetail) return [];
+    const items = selectedLawDetail.artigos.map((article, index) => {
+      const rawNumber = article.numero?.trim();
+      const label = rawNumber || String(index + 1);
+      const sortOrder =
+        parseArticleNumberValue(rawNumber) ??
+        parseOrder(String(index + 1)) ??
+        index + 1;
+      const articleId = article.id || `law-article-${index}`;
+      return { key: articleId, articleId, label, sortOrder };
+    });
+    return [
+      {
+        part: "Artigos",
+        items: items.sort((a, b) => {
+          if (a.sortOrder === b.sortOrder) {
+            return a.label.localeCompare(b.label, "pt-BR");
+          }
+          return a.sortOrder - b.sortOrder;
+        }),
+      },
+    ];
+  }, [parseArticleNumberValue, parseOrder, selectedLawDetail]);
+
+  const filteredLawFilterGroups = React.useMemo(() => {
+    const term = articleQuery.trim().toLowerCase();
+    const groups = lawFilterGroups;
+    if (!term) return groups;
+    return groups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          item.label.toLowerCase().includes(term)
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [articleQuery, lawFilterGroups]);
+
   const jurisprudenceNavArticles = React.useMemo(() => {
     return selectedJurisprudenceItems
       .map((item, index) => ({
@@ -1156,6 +1365,43 @@ const VadeMecum: React.FC = () => {
                 )}
               </GroupSection>
             </div>
+          ) : activeTab === "laws" ? (
+            <div>
+              <GroupSection>
+                <GroupTitle>Leis</GroupTitle>
+                {lawError && <ErrorMessage>{lawError}</ErrorMessage>}
+                {lawLoading ? (
+                  <ItemList>
+                    {Array.from({ length: 4 }).map((_, index) => (
+                      <Card
+                        key={`law-skeleton-${index}`}
+                        style={{ height: 140, opacity: 0.4, borderStyle: "dashed" }}
+                      />
+                    ))}
+                  </ItemList>
+                ) : lawGroups.length === 0 ? (
+                  <EmptyState>
+                    <h3>Nenhuma lei encontrada</h3>
+                    <p>O endpoint de leis nao retornou registros.</p>
+                  </EmptyState>
+                ) : (
+                  <ItemList>
+                    {lawGroups.map((group) => (
+                      <ItemCard
+                        key={group.id}
+                        onClick={() => openLawGroup(group)}
+                      >
+                        <h3>{group.nomecodigo || "Sem nome"}</h3>
+                        <p>{group.descricao || "Sem descricao cadastrada."}</p>
+                        {typeof group.quantidade === "number" && (
+                          <span>{group.quantidade} registros</span>
+                        )}
+                      </ItemCard>
+                    ))}
+                  </ItemList>
+                )}
+              </GroupSection>
+            </div>
           ) : visibleGroupsByTipo.length === 0 ? (
             <EmptyState>
               <h3>Nenhum codigo encontrado</h3>
@@ -1210,10 +1456,14 @@ const VadeMecum: React.FC = () => {
 
               <ArticleContent>
                 <Card style={{ padding: 24 }}>
-                  <h2 style={{ marginBottom: 8 }}>{selectedGroup.label}</h2>
-                  <p style={{ color: "var(--text-secondary)" }}>
-                    {selectedGroup.description || "Sem cabecalho cadastrado."}
-                  </p>
+                  {!isLawDetail && (
+                    <>
+                      <h2 style={{ marginBottom: 8 }}>{selectedGroup.label}</h2>
+                      <p style={{ color: "var(--text-secondary)" }}>
+                        {selectedGroup.description || "Sem cabecalho cadastrado."}
+                      </p>
+                    </>
+                  )}
                   {selectedError && (
                     <p style={{ marginTop: 12, color: "#dc2626", fontWeight: 600 }}>
                       {selectedError}
@@ -1225,7 +1475,60 @@ const VadeMecum: React.FC = () => {
                     </p>
                   )}
                   {(() => {
-                    const card = buildCardSections(selectedGroup, selectedGroupCodes);
+                    if (isLawDetail) {
+                      if (!selectedLawDetail && !selectedLoading && !selectedError) {
+                        return (
+                          <p style={{ marginTop: 16, color: "var(--text-secondary)" }}>
+                            Nenhuma lei encontrada para este código.
+                          </p>
+                        );
+                      }
+                      const lawTipoText =
+                        selectedLawDetail?.tipo?.trim() ||
+                        selectedLawDetail?.nomecodigo?.trim() ||
+                        selectedGroup.label ||
+                        "Tipo não informado";
+                      const lawTitulo =
+                        selectedLawDetail?.titulo?.trim() ||
+                        "Título não informado";
+                      const artigos = selectedLawDetail?.artigos || [];
+                      return (
+                        <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
+                          <p style={{ fontWeight: 700 }}>{lawTipoText}</p>
+                          <p style={{ fontWeight: 700 }}>{lawTitulo}</p>
+                          <p style={{ fontWeight: 700 }}>Artigos</p>
+                          <div style={{ display: "grid", gap: 8 }}>
+                            {artigos.length === 0 && !selectedLoading ? (
+                              <p style={{ color: "var(--text-secondary)" }}>
+                                Nenhum artigo retornado pelo serviço.
+                              </p>
+                            ) : (
+                              artigos.map((article, index) => {
+                                const articleId = article.id || `law-article-${index}`;
+                                const isFocused =
+                                  focusedArticleId === articleId;
+                                const content =
+                                  article.texto?.trim() || "-";
+                                return (
+                                  <ArticleParagraph
+                                    key={articleId}
+                                    id={`article-${articleId}`}
+                                    focused={isFocused}
+                                  >
+                                    {content}
+                                  </ArticleParagraph>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const card = buildCardSections(
+                      selectedGroup,
+                      selectedGroupCodes
+                    );
                     return (
                       <div style={{ marginTop: 20, display: "grid", gap: 16 }}>
                         {card.sections.map((section) => (
@@ -1242,7 +1545,8 @@ const VadeMecum: React.FC = () => {
                                   item.normativo,
                                   fallbackLabel
                                 );
-                                const isFocused = focusedArticleId === item.articleId;
+                                const isFocused =
+                                  focusedArticleId === item.articleId;
                                 return (
                                   <ArticleParagraph
                                     key={`${section.key}-${index}`}
@@ -1282,12 +1586,18 @@ const VadeMecum: React.FC = () => {
                 </SearchButton>
               </SearchContainer>
               <FilterGroupsContainer>
-                {filteredFilterGroups.length === 0 ? (
+                {(isLawDetail
+                  ? filteredLawFilterGroups
+                  : filteredFilterGroups
+                ).length === 0 ? (
                   <FilterEmptyState>
                     Nenhum artigo encontrado para o filtro.
                   </FilterEmptyState>
                 ) : (
-                  filteredFilterGroups.map((group) => (
+                  (isLawDetail
+                    ? filteredLawFilterGroups
+                    : filteredFilterGroups
+                  ).map((group) => (
                     <div key={group.part}>
                       <FilterGroupTitle>{group.part}</FilterGroupTitle>
                       <FilterGroupGrid>
@@ -1571,6 +1881,10 @@ const normalizeJurisprudenceGroups = (payload: unknown): VadeMecumJurisprudenceG
         ? record["nomecodigo"]
         : typeof record["nomeCodigo"] === "string"
         ? record["nomeCodigo"]
+        : typeof record["cabecalho"] === "string"
+        ? record["cabecalho"]
+        : typeof record["Cabecalho"] === "string"
+        ? record["Cabecalho"]
         : `Jurisprudencia ${index + 1}`;
     const quantidadeValue = record["quantidade"] ?? record["total"] ?? record["count"];
     const quantidade =
@@ -1579,12 +1893,17 @@ const normalizeJurisprudenceGroups = (payload: unknown): VadeMecumJurisprudenceG
         : typeof quantidadeValue === "string"
         ? Number(quantidadeValue)
         : undefined;
-    const descricao =
+    const descricaoRaw =
       typeof record["descricao"] === "string"
         ? record["descricao"]
         : typeof record["description"] === "string"
         ? record["description"]
+        : typeof record["cabecalho"] === "string"
+        ? record["cabecalho"]
+        : typeof record["Cabecalho"] === "string"
+        ? record["Cabecalho"]
         : undefined;
+    const descricao = descricaoRaw && descricaoRaw !== nomecodigo ? descricaoRaw : undefined;
     const id =
       typeof record["id"] === "string"
         ? record["id"]
@@ -1603,6 +1922,120 @@ const normalizeJurisprudenceGroups = (payload: unknown): VadeMecumJurisprudenceG
     }
     if (Array.isArray(raw["data"])) {
       return raw["data"].map(parseRaw);
+    }
+  }
+  return [];
+};
+
+const normalizeLawGroups = (payload: unknown): VadeMecumLawGroup[] => {
+  const parseRaw = (item: unknown, index: number): VadeMecumLawGroup => {
+    if (!item || typeof item !== "object") {
+      return {
+        id: `law-${index}`,
+        nomecodigo: `Lei ${index + 1}`,
+      };
+    }
+    const record = item as Record<string, unknown>;
+    const nomecodigo =
+      typeof record["nomecodigo"] === "string"
+        ? record["nomecodigo"]
+        : typeof record["nomeCodigo"] === "string"
+        ? record["nomeCodigo"]
+        : typeof record["cabecalho"] === "string"
+        ? record["cabecalho"]
+        : `Lei ${index + 1}`;
+    const descricao =
+      typeof record["descricao"] === "string"
+        ? record["descricao"]
+        : typeof record["description"] === "string"
+        ? record["description"]
+        : typeof record["cabecalho"] === "string"
+        ? record["cabecalho"]
+        : undefined;
+    const quantidadeValue = record["quantidade"];
+    const quantidade =
+      typeof quantidadeValue === "number"
+        ? quantidadeValue
+        : typeof quantidadeValue === "string"
+        ? Number(quantidadeValue)
+        : undefined;
+    const id =
+      typeof record["id"] === "string"
+        ? record["id"]
+        : `law-${nomecodigo}-${index}`;
+    return { id, nomecodigo, descricao, quantidade };
+  };
+
+  if (!payload) return [];
+  if (Array.isArray(payload)) {
+    return payload.map(parseRaw);
+  }
+  if (typeof payload === "object") {
+    const raw = payload as Record<string, unknown>;
+    if (Array.isArray(raw["items"])) {
+      return raw["items"].map(parseRaw);
+    }
+    if (Array.isArray(raw["data"])) {
+      return raw["data"].map(parseRaw);
+    }
+  }
+  return [];
+};
+
+type NormalizedLawRecord = {
+  id: string;
+  tipo?: string;
+  nomecodigo: string;
+  titulo?: string;
+  numero?: string;
+  texto: string;
+};
+
+const normalizeLawDetailRecords = (payload: unknown): NormalizedLawRecord[] => {
+  const parseRecord = (item: unknown, index: number): NormalizedLawRecord => {
+    if (!item || typeof item !== "object") {
+      return {
+        id: `law-record-${index}`,
+        nomecodigo: `Lei ${index + 1}`,
+        texto: "",
+      };
+    }
+    const record = item as Record<string, unknown>;
+    return {
+      id: getFirstString(record, ["id", "uuid"], `law-record-${index}`),
+      tipo: getFirstString(record, ["tipo", "Tipo"]),
+      nomecodigo: getFirstString(
+        record,
+        ["nomecodigo", "nomeCodigo", "nome", "nomeLei", "codigo"],
+        `Lei ${index + 1}`
+      ),
+      titulo: getFirstString(
+        record,
+        ["titulo", "Titulo", "titulotexto", "TituloTexto"]
+      ),
+      numero: getFirstString(
+        record,
+        ["num_artigo", "numero_artigo", "numero", "Artigo", "artigo"]
+      ),
+      texto: getFirstString(
+        record,
+        ["artigos", "Artigos", "texto", "normativo", "descricao", "descricao_artigo", "conteudo", "cabecalho"],
+        ""
+      ),
+    };
+  };
+
+  if (!payload) return [];
+  if (Array.isArray(payload)) {
+    return payload.map(parseRecord);
+  }
+  if (typeof payload === "object") {
+    const raw = payload as Record<string, unknown>;
+    if (Array.isArray(raw["items"])) {
+      return raw["items"].map(parseRecord);
+    }
+    if (Array.isArray(raw["data"])) {
+      return raw["data"].map(parseRecord);
     }
   }
   return [];
