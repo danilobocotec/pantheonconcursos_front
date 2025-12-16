@@ -55,7 +55,10 @@ type VadeMecumGroup = {
 };
 
 const TOKEN_KEY = "pantheon:token";
-const VADE_API_URL = "http://localhost:8080/api/v1/vade-mecum/codigos";
+const VADE_CAPAS_API_URL =
+  "http://localhost:8080/api/v1/vade-mecum/codigos/capas";
+const VADE_CODIGOS_API_URL =
+  "http://localhost:8080/api/v1/vade-mecum/codigos";
 
 const VadeMecumContainer = styled.div`
   padding: 24px;
@@ -157,6 +160,9 @@ const NavigationPanel = styled.div<{ isOpen: boolean }>`
   height: fit-content;
   position: sticky;
   top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 
   ${media.mobile} {
     position: fixed;
@@ -294,10 +300,37 @@ const SearchButton = styled.button`
   }
 `;
 
-const ArticleGrid = styled.div`
+const FilterGroupsContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-right: 6px;
+
+  ${media.mobile} {
+    max-height: calc(100vh - 220px);
+  }
+`;
+
+const FilterGroupTitle = styled.p`
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: ${(props) => props.theme.colors.textSecondary};
+  margin: 6px 0;
+`;
+
+const FilterGroupGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+`;
+
+const FilterEmptyState = styled.p`
+  font-size: 12px;
+  color: ${(props) => props.theme.colors.textSecondary};
 `;
 
 const ArticleButton = styled.button<{ active?: boolean }>`
@@ -312,15 +345,11 @@ const ArticleButton = styled.button<{ active?: boolean }>`
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
-
-  &:hover {
-    border-color: ${(props) => props.theme.colors.accentSecondary};
-  }
 `;
 
 const ItemList = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
   margin-bottom: 32px;
 `;
@@ -401,6 +430,24 @@ const ArticleContent = styled.div`
   }
 `;
 
+const ArticleParagraph = styled.p<{ focused: boolean }>`
+  white-space: pre-wrap;
+  scroll-margin-top: 90px;
+  border-radius: 8px;
+  border: 1px solid
+    ${(props) => (props.focused ? props.theme.colors.accent : "transparent")};
+  padding: ${(props) => (props.focused ? "10px 12px" : "0px")};
+  background: transparent;
+  color: ${(props) => props.theme.colors.textSecondary};
+  margin: 0;
+
+  .article-prefix {
+    font-weight: 700;
+    color: ${(props) => props.theme.colors.accent};
+    margin-right: 6px;
+  }
+`;
+
 const ErrorMessage = styled.div`
   padding: 16px;
   border-radius: 12px;
@@ -472,7 +519,7 @@ const VadeMecum: React.FC = () => {
           ? window.localStorage.getItem(TOKEN_KEY)
           : null;
       if (token) headers.Authorization = `Bearer ${token}`;
-      const response = await fetch(VADE_API_URL, { headers });
+      const response = await fetch(VADE_CAPAS_API_URL, { headers });
       if (!response.ok) {
         throw new Error(`Falha ao carregar registros (${response.status})`);
       }
@@ -495,6 +542,14 @@ const VadeMecum: React.FC = () => {
 
   const parseOrder = React.useCallback((value: string) => {
     const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, []);
+
+  const parseArticleNumberValue = React.useCallback((value?: string | null) => {
+    if (!value) return null;
+    const digits = value.match(/\d+(?:[\.,]\d+)?/);
+    if (!digits) return null;
+    const parsed = Number(digits[0].replace(",", "."));
     return Number.isFinite(parsed) ? parsed : null;
   }, []);
 
@@ -599,7 +654,11 @@ const VadeMecum: React.FC = () => {
         const orderLabel = String(parseOrder(record.ordem) ?? index + 1);
         const articleNumber = record.num_artigo?.trim() || "";
         const normativo = record.normativo?.trim() || "-";
-        const articleId = record.id;
+        const baseArticleId = record.id.trim();
+        const articleId =
+          baseArticleId.length > 0
+            ? baseArticleId
+            : `${record.nomecodigo || "article"}-${index}`;
 
         if (!current || current.key !== key) {
           sections.push({
@@ -728,7 +787,9 @@ const VadeMecum: React.FC = () => {
             : null;
         if (token) headers.Authorization = `Bearer ${token}`;
 
-        const url = `${VADE_API_URL}?nomecodigo=${encodeURIComponent(nomecodigo)}`;
+        const url = `${VADE_CODIGOS_API_URL}?nomecodigo=${encodeURIComponent(
+          nomecodigo
+        )}`;
         let response = await fetch(url, { headers });
         if ((response.status === 401 || response.status === 403) && token) {
           response = await fetch(url, { headers: { Accept: "application/json" } });
@@ -780,49 +841,96 @@ const VadeMecum: React.FC = () => {
     [isMobile]
   );
 
-  const navArticles = React.useMemo(() => {
+  const articleMetaMap = React.useMemo(() => {
+    const map = new Map<
+      string,
+      { part: string; label: string; sortOrder: number }
+    >();
+    selectedGroupCodes.forEach((record, index) => {
+      const part = record.parte?.trim() || "Sem parte definida";
+      const articleNumber = record.num_artigo?.trim();
+      const fallbackLabel = String(parseOrder(record.ordem) ?? index + 1);
+      const baseArticleId = record.id.trim();
+      const articleId =
+        baseArticleId.length > 0
+          ? baseArticleId
+          : `${record.nomecodigo || "article"}-${index}`;
+      const sortOrder =
+        parseOrder(record.ordem) ??
+        parseArticleNumberValue(articleNumber) ??
+        index + 1;
+      const label = articleNumber || fallbackLabel;
+      map.set(articleId, { part, label, sortOrder });
+    });
+    return map;
+  }, [parseArticleNumberValue, parseOrder, selectedGroupCodes]);
+
+  const filterGroups = React.useMemo(() => {
     if (!selectedGroup) return [];
     const card = buildCardSections(selectedGroup, selectedGroupCodes);
     const flattened = card.sections.flatMap((section) => section.items);
-
-    const map = new Map<
+    const groupMap = new Map<
       string,
-      { key: string; articleId: string; articleNumber: string; orderLabel: string }
+      { part: string; items: Array<{ key: string; articleId: string; label: string; sortOrder: number }> }
     >();
-    flattened.forEach((item) => {
-      const key = item.articleNumber || item.orderLabel;
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          articleId: item.articleId,
-          articleNumber: item.articleNumber,
-          orderLabel: item.orderLabel,
-        });
+    const seen = new Set<string>();
+
+    flattened.forEach((item, index) => {
+      if (seen.has(item.articleId)) return;
+      seen.add(item.articleId);
+      const meta =
+        articleMetaMap.get(item.articleId) || {
+          part: "Sem parte definida",
+          label: item.articleNumber || item.orderLabel || String(index + 1),
+          sortOrder:
+            parseOrder(item.orderLabel) ??
+            parseArticleNumberValue(item.articleNumber) ??
+            index + 1,
+        };
+      const part = meta.part || "Sem parte definida";
+      if (!groupMap.has(part)) {
+        groupMap.set(part, { part, items: [] });
       }
+      groupMap.get(part)!.items.push({
+        key: `${part}-${item.articleId}`,
+        articleId: item.articleId,
+        label: meta.label,
+        sortOrder: meta.sortOrder,
+      });
     });
 
-    const parseArticleNumber = (value: string) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : null;
-    };
+    return Array.from(groupMap.values())
+      .map((group) => ({
+        ...group,
+        items: group.items.sort((a, b) => {
+          if (a.sortOrder === b.sortOrder) {
+            return a.label.localeCompare(b.label, "pt-BR");
+          }
+          return a.sortOrder - b.sortOrder;
+        }),
+      }))
+      .sort((a, b) => a.part.localeCompare(b.part, "pt-BR"));
+  }, [
+    articleMetaMap,
+    buildCardSections,
+    parseArticleNumberValue,
+    parseOrder,
+    selectedGroup,
+    selectedGroupCodes,
+  ]);
 
-    return Array.from(map.values()).sort((a, b) => {
-      const aNum = parseArticleNumber(a.articleNumber || a.orderLabel);
-      const bNum = parseArticleNumber(b.articleNumber || b.orderLabel);
-      if (aNum === null && bNum === null) return a.key.localeCompare(b.key, "pt-BR");
-      if (aNum === null) return 1;
-      if (bNum === null) return -1;
-      return aNum - bNum;
-    });
-  }, [buildCardSections, selectedGroup, selectedGroupCodes]);
-
-  const filteredNavArticles = React.useMemo(() => {
+  const filteredFilterGroups = React.useMemo(() => {
     const term = articleQuery.trim().toLowerCase();
-    if (!term) return navArticles;
-    return navArticles.filter((item) =>
-      (item.articleNumber || item.orderLabel).toLowerCase().includes(term)
-    );
-  }, [articleQuery, navArticles]);
+    if (!term) return filterGroups;
+    return filterGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          item.label.toLowerCase().includes(term)
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [articleQuery, filterGroups]);
 
   return (
     <VadeMecumContainer>
@@ -946,31 +1054,28 @@ const VadeMecum: React.FC = () => {
                             <p>{section.tituloLine}</p>
                             <p>{section.capituloLine}</p>
                             <div style={{ display: "grid", gap: 8 }}>
-                              {section.items.map((item, index) => (
-                                <p
-                                  key={`${section.key}-${index}`}
-                                  id={`article-${item.articleId}`}
-                                  style={{
-                                    whiteSpace: "pre-wrap",
-                                    scrollMarginTop: 90,
-                                    borderRadius: 8,
-                                    padding:
-                                      focusedArticleId === item.articleId
-                                        ? "10px 12px"
-                                        : "0px",
-                                    background:
-                                      focusedArticleId === item.articleId
-                                        ? "rgba(249, 115, 22, 0.12)"
-                                        : "transparent",
-                                    border:
-                                      focusedArticleId === item.articleId
-                                        ? "1px solid rgba(249, 115, 22, 0.35)"
-                                        : "1px solid transparent",
-                                  }}
-                                >
-                                  {item.orderLabel}. {item.normativo}
-                                </p>
-                              ))}
+                              {section.items.map((item, index) => {
+                                const fallbackLabel = `Art. ${
+                                  item.articleNumber || item.orderLabel
+                                }`;
+                                const parts = extractArticleParts(
+                                  item.normativo,
+                                  fallbackLabel
+                                );
+                                const isFocused = focusedArticleId === item.articleId;
+                                return (
+                                  <ArticleParagraph
+                                    key={`${section.key}-${index}`}
+                                    id={`article-${item.articleId}`}
+                                    focused={isFocused}
+                                  >
+                                    <span className="article-prefix">
+                                      {parts.label}
+                                    </span>
+                                    {parts.body}
+                                  </ArticleParagraph>
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
@@ -996,21 +1101,31 @@ const VadeMecum: React.FC = () => {
                   Limpar
                 </SearchButton>
               </SearchContainer>
-              <ArticleGrid>
-                {filteredNavArticles.map((item) => {
-                  const label = item.articleNumber || item.orderLabel;
-                  return (
-                    <ArticleButton
-                      key={item.key}
-                      type="button"
-                      active={focusedArticleId === item.articleId}
-                      onClick={() => handleArticleSelect(item.articleId)}
-                    >
-                      Art. {label || "-"}
-                    </ArticleButton>
-                  );
-                })}
-              </ArticleGrid>
+              <FilterGroupsContainer>
+                {filteredFilterGroups.length === 0 ? (
+                  <FilterEmptyState>
+                    Nenhum artigo encontrado para o filtro.
+                  </FilterEmptyState>
+                ) : (
+                  filteredFilterGroups.map((group) => (
+                    <div key={group.part}>
+                      <FilterGroupTitle>{group.part}</FilterGroupTitle>
+                      <FilterGroupGrid>
+                        {group.items.map((item) => (
+                          <ArticleButton
+                            key={item.key}
+                            type="button"
+                            active={focusedArticleId === item.articleId}
+                            onClick={() => handleArticleSelect(item.articleId)}
+                          >
+                            Art. {item.label || "-"}
+                          </ArticleButton>
+                        ))}
+                      </FilterGroupGrid>
+                    </div>
+                  ))
+                )}
+              </FilterGroupsContainer>
             </NavigationPanel>
           </ContentArea>
         </>
@@ -1100,6 +1215,23 @@ const normalizeCollection = (payload: unknown): VadeMecumCode[] => {
   }
 
   return [];
+};
+
+const extractArticleParts = (
+  normativo: string,
+  fallbackLabel: string
+): { label: string; body: string } => {
+  const text = (normativo ?? "").trimStart();
+  const match = text.match(/^(Art(?:igo)?\.?\s*\d+[^\s]*)/i);
+  if (match) {
+    const label = match[0].trim();
+    const body = text.slice(match[0].length).trimStart();
+    return { label, body };
+  }
+  return {
+    label: fallbackLabel,
+    body: text,
+  };
 };
 
 const formatDate = (value: string) => {

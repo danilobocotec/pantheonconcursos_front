@@ -6,7 +6,8 @@ import {
   HelpCircle, 
   Brain, 
   Calendar,
-  ChevronRight
+  ChevronRight,
+  Settings
 } from 'lucide-react';
 import { Card, Button } from '../styles/GlobalStyles';
 
@@ -180,8 +181,25 @@ const CardFooter = styled.div`
   }
 `;
 
+type FeatureCardInfo = {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  action: string;
+  href?: string;
+};
+
 const VisaoGeral: React.FC = () => {
-  const features = [
+  const features: FeatureCardInfo[] = [
+    {
+      id: 'area-admin',
+      title: 'Área Administrativa',
+      description: 'Gerencie conteúdos, usuários e o Vade Mecum diretamente no painel interno.',
+      icon: <Settings size={24} color="white" />,
+      action: 'Ir para o painel',
+      href: '/admin'
+    },
     {
       id: 'meus-cursos',
       title: 'Meus Cursos',
@@ -229,7 +247,14 @@ const VisaoGeral: React.FC = () => {
       <ContentWrapper>
         <CardsGrid>
           {features.map((feature) => (
-            <FeatureCard key={feature.id}>
+            <FeatureCard
+              key={feature.id}
+              onClick={() => {
+                if (feature.href) {
+                  window.open(feature.href, '_self');
+                }
+              }}
+            >
               <CardHeader>
                 <CardIcon>
                   {feature.icon}

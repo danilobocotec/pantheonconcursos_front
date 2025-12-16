@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router } from 'react-router-dom';
 import styled, { ThemeProvider } from 'styled-components';
 import { GlobalStyle, lightTheme, darkTheme } from './styles/GlobalStyles';
 import Sidebar from './components/Layout/Sidebar';
@@ -9,12 +10,8 @@ import MapasMentais from './pages/MapasMentais';
 import Settings from './pages/Settings';
 import ConteudoLivro from './pages/ConteudoLivro';
 import PlanoEstudos from './pages/PlanoEstudos';
+import AdminDashboard from './pages/AdminDashboard';
 import { Sun, Moon } from 'lucide-react';
-
-type AppProps = {
-  initialSection?: string;
-  onNavigateHome?: () => void;
-};
 
 const AppContainer = styled.div`
   display: flex;
@@ -55,34 +52,6 @@ const ThemeToggle = styled.button`
 
   @media (max-width: 768px) {
     display: none;
-  }
-`;
-
-const BackButton = styled.button`
-  position: fixed;
-  top: 20px;
-  right: 90px;
-  padding: 10px 18px;
-  border-radius: 9999px;
-  border: none;
-  background: ${props => props.theme.colors.surface};
-  color: ${props => props.theme.colors.text};
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 4px 12px ${props => props.theme.colors.shadow};
-  transition: all 0.2s ease;
-  z-index: 1000;
-
-  &:hover {
-    background: ${props => props.theme.colors.accent};
-    color: white;
-    transform: translateY(-1px);
-  }
-
-  @media (max-width: 768px) {
-    right: 16px;
-    top: 80px;
-    padding: 8px 14px;
   }
 `;
 
@@ -203,8 +172,18 @@ const CardDescription = styled.p`
   }
 `;
 
-const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome }) => {
-  const [activeSection, setActiveSection] = useState(initialSection);
+const resolveInitialSection = (): string => {
+  if (typeof window === 'undefined') return 'dashboard';
+  const params = new URLSearchParams(window.location.search);
+  const section = params.get('section');
+  if (section && section.trim().length > 0) {
+    return section.trim();
+  }
+  return 'dashboard';
+};
+
+const App: React.FC = () => {
+  const [activeSection, setActiveSection] = useState<string>(() => resolveInitialSection());
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [contentData, setContentData] = useState<{
@@ -223,14 +202,20 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('section')) return;
+    params.delete('section');
+    const query = params.toString();
+    const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    window.history.replaceState({}, '', nextUrl);
+  }, []);
+
   const handleContentLoad = (courseId: string, moduleId: string, lessonId: string) => {
     setContentData({ courseId, moduleId, lessonId });
     setActiveSection('content');
   };
-
-  useEffect(() => {
-    setActiveSection(initialSection);
-  }, [initialSection]);
 
   const handleFeatureClick = (section: string) => {
     setActiveSection(section);
@@ -254,6 +239,8 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
         return <MapasMentais />;
       case 'settings':
         return <Settings />;
+      case 'admin':
+        return <AdminDashboard onNavigate={setActiveSection} />;
       case 'content':
         return <ConteudoLivro contentData={contentData} onBack={() => setActiveSection('courses')} />;
       default:
@@ -269,6 +256,11 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
             
             <CardsContainer>
               <CardsGrid>
+                <Card onClick={() => handleFeatureClick('admin')}>
+                  <CardIcon>⚙️</CardIcon>
+                  <CardTitle>Área Administrativa</CardTitle>
+                  <CardDescription>Gerencie conteúdo, usuários e prioridades do Vade Mecum.</CardDescription>
+                </Card>
                 <Card onClick={() => handleFeatureClick('plano-estudos')}>
                   <CardIcon>📅</CardIcon>
                   <CardTitle>Plano de Estudos</CardTitle>
@@ -304,27 +296,23 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
   return (
     <ThemeProvider theme={isDarkMode ? darkTheme : lightTheme}>
       <GlobalStyle />
-      <AppContainer>
-        <Sidebar 
-          activeSection={activeSection} 
-          onSectionChange={setActiveSection}
-          isDarkMode={isDarkMode}
-          onThemeToggle={() => setIsDarkMode(!isDarkMode)}
-        />
-        <MainContent isMobile={isMobile}>
-          {renderContent()}
-        </MainContent>
-
-        {onNavigateHome && (
-          <BackButton onClick={onNavigateHome}>
-            Voltar ao site
-          </BackButton>
-        )}
-        
-        <ThemeToggle onClick={() => setIsDarkMode(!isDarkMode)}>
-          {isDarkMode ? <Sun size={24} /> : <Moon size={24} />}
-        </ThemeToggle>
-      </AppContainer>
+      <Router>
+        <AppContainer>
+          <Sidebar 
+            activeSection={activeSection} 
+            onSectionChange={setActiveSection}
+            isDarkMode={isDarkMode}
+            onThemeToggle={() => setIsDarkMode(!isDarkMode)}
+          />
+          <MainContent isMobile={isMobile}>
+            {renderContent()}
+          </MainContent>
+          
+          <ThemeToggle onClick={() => setIsDarkMode(!isDarkMode)}>
+            {isDarkMode ? <Sun size={24} /> : <Moon size={24} />}
+          </ThemeToggle>
+        </AppContainer>
+      </Router>
     </ThemeProvider>
   );
 };
