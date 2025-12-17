@@ -1,6 +1,6 @@
 {
   "installCommand": "node vercel-install.mjs || node ../vercel-install.mjs",
   "buildCommand": "node build-and-copy.mjs || node ../build-and-copy.mjs",
-  "outputDirectory": "dist",
+  "outputDirectory": "/dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/" }]
 }
