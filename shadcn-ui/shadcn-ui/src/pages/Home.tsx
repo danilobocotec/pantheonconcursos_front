@@ -1,4 +1,5 @@
 ﻿import React from "react";
+import { buildApiUrl } from "@/lib/api";
 import type { LucideIcon } from "lucide-react";
 import {
   Menu,
@@ -76,7 +77,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
     setLoginLoading(true);
 
     try {
-      const response = await fetch("http://localhost:8080/api/v1/auth/login", {
+      const response = await fetch(buildApiUrl("/auth/login"), {
         method: "POST",
         headers: {
           accept: "application/json",
@@ -1283,3 +1284,5 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 };
 
 export default PantheonConcursos;
+
+

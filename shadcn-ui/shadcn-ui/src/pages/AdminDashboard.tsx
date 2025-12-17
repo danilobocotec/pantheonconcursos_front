@@ -1,4 +1,5 @@
 import React from "react";
+import { buildApiUrl } from "@/lib/api";
 import {
   LayoutDashboard,
   Users,
@@ -129,7 +130,7 @@ const DEFAULT_FORM: VadeMecumFormData = {
 };
 
 const TOKEN_KEY = "pantheon:token";
-const VADE_API_URL = "http://localhost:8080/api/v1/vade-mecum/codigos";
+const VADE_API_URL = buildApiUrl("/vade-mecum/codigos");
 const VADE_IMPORT_URL = `${VADE_API_URL}/import`;
 
 const AdminDashboard = ({ onNavigate }: AdminDashboardProps) => {
