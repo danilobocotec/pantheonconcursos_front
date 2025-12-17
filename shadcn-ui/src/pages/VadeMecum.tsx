@@ -55,6 +55,20 @@ type VadeMecumGroup = {
   updatedAt?: string;
 };
 
+type ArticleNavItem = {
+  articleId: string;
+  label: string;
+  order: number | null;
+};
+
+type ArticleNavGroup = {
+  key: string;
+  label: string;
+  order: number | null;
+  priority: number;
+  items: ArticleNavItem[];
+};
+
 const TOKEN_KEY = "pantheon:token";
 const VADE_API_URL = buildApiUrl("/vade-mecum/codigos");
 
@@ -158,6 +172,8 @@ const NavigationPanel = styled.div<{ isOpen: boolean }>`
   height: fit-content;
   position: sticky;
   top: 24px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
 
   ${media.mobile} {
     position: fixed;
@@ -176,6 +192,7 @@ const NavigationPanel = styled.div<{ isOpen: boolean }>`
     transition: transform 0.3s ease;
     box-shadow: ${(props) =>
       props.isOpen ? "-5px 0 20px rgba(0, 0, 0, 0.3)" : "none"};
+    max-height: none;
     overflow-y: auto;
     background: ${(props) => props.theme.colors.surface};
   }
@@ -301,15 +318,33 @@ const ArticleGrid = styled.div`
   gap: 8px;
 `;
 
-const ArticleButton = styled.button<{ active?: boolean }>`
+const ArticleGroupsWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+`;
+
+const ArticleGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const ArticleGroupTitle = styled.h4`
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: ${(props) => props.theme.colors.textSecondary};
+  letter-spacing: 0.08em;
+`;
+
+const ArticleButton = styled.button`
   padding: 8px;
   border-radius: 6px;
-  border: 1px solid
-    ${(props) =>
-      props.active ? props.theme.colors.accent : props.theme.colors.border};
-  background: ${(props) =>
-    props.active ? props.theme.colors.accent : props.theme.colors.background};
-  color: ${(props) => (props.active ? "white" : props.theme.colors.text)};
+  border: 1px solid ${(props) => props.theme.colors.border};
+  background: ${(props) => props.theme.colors.background};
+  color: ${(props) => props.theme.colors.text};
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -319,9 +354,10 @@ const ArticleButton = styled.button<{ active?: boolean }>`
   }
 `;
 
-const ItemList = styled.div`
+const ItemList = styled.div<{ singleColumn?: boolean }>`
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: ${(props) =>
+    props.singleColumn ? "1fr" : "repeat(auto-fit, minmax(280px, 1fr))"};
   gap: 16px;
   margin-bottom: 32px;
 `;
@@ -377,6 +413,25 @@ const ArticleContent = styled.div`
   display: flex;
   flex-direction: column;
   gap: 16px;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+
+  .article-label {
+    font-weight: 700;
+    color: #7b1e1e;
+    margin-right: 6px;
+  }
+
+  .article-body {
+    color: ${(props) => props.theme.colors.textSecondary};
+  }
+
+  .article-part-label {
+    font-weight: 700;
+    color: ${(props) => props.theme.colors.text};
+  }
 
   .article-block {
     background: ${(props) => props.theme.colors.surface};
@@ -442,7 +497,6 @@ const VadeMecum: React.FC = () => {
   const [selectedLoading, setSelectedLoading] = React.useState(false);
   const [selectedError, setSelectedError] = React.useState<string | null>(null);
   const [articleQuery, setArticleQuery] = React.useState("");
-  const [focusedArticleId, setFocusedArticleId] = React.useState<string | null>(null);
   const [isNavOpen, setIsNavOpen] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<
     "constitution" | "codes" | "laws" | "jurisprudence" | "oab" | "statutes"
@@ -495,8 +549,16 @@ const VadeMecum: React.FC = () => {
   }, [loadCodes]);
 
   const parseOrder = React.useCallback((value: string) => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
+    const trimmed = value?.trim();
+    if (!trimmed) return null;
+    const direct = Number(trimmed);
+    if (Number.isFinite(direct)) return direct;
+    const digits = trimmed.match(/\d+/);
+    if (digits) {
+      const fallback = Number(digits[0]);
+      if (Number.isFinite(fallback)) return fallback;
+    }
+    return null;
   }, []);
 
   const formatPair = React.useCallback((left: string, right: string) => {
@@ -504,6 +566,18 @@ const VadeMecum: React.FC = () => {
     const rightValue = right?.trim();
     if (leftValue && rightValue) return `${leftValue} - ${rightValue}`;
     return leftValue || rightValue || "-";
+  }, []);
+
+  const getPartePriority = React.useCallback((label: string) => {
+    const normalized = label
+      ?.normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+    if (!normalized) return 2;
+    if (normalized.includes("geral")) return 0;
+    if (normalized.includes("especial")) return 1;
+    return 2;
   }, []);
 
   const tabs = React.useMemo(
@@ -549,6 +623,19 @@ const VadeMecum: React.FC = () => {
     [normalizeText, tabs]
   );
 
+  const splitArticleHighlight = React.useCallback((text: string | undefined | null) => {
+    const value = typeof text === "string" ? text : "";
+    const withNumberMatch =
+      value.match(/Art\.?\s*\d+[^\s]*/i) ?? value.match(/Art\.?/i);
+    if (!withNumberMatch || withNumberMatch.index === undefined) {
+      return { before: value, art: "", after: "" };
+    }
+    const before = value.slice(0, withNumberMatch.index);
+    const art = withNumberMatch[0];
+    const after = value.slice(withNumberMatch.index + art.length);
+    return { before, art, after };
+  }, []);
+
   const buildCardSections = React.useCallback(
     (group: Pick<VadeMecumGroup, "description">, groupCodes: VadeMecumCode[]) => {
       const records = [...groupCodes].sort((a, b) => {
@@ -565,6 +652,7 @@ const VadeMecum: React.FC = () => {
         livroLine: string;
         tituloLine: string;
         capituloLine: string;
+        parteLine: string;
         items: Array<{
           articleId: string;
           articleNumber: string;
@@ -608,6 +696,7 @@ const VadeMecum: React.FC = () => {
             livroLine: formatPair(record.livro, record.livrotexto),
             tituloLine: formatPair(record.titulo, record.titulotexto),
             capituloLine: formatPair(record.capitulo, record.capitulotexto),
+            parteLine: record.parte?.trim() || "",
             items: [{ articleId, articleNumber, orderLabel, normativo }],
           });
           return;
@@ -708,7 +797,6 @@ const VadeMecum: React.FC = () => {
     setSelectedGroup(group);
     setSelectedGroupCodes(group.codes);
     setArticleQuery("");
-    setFocusedArticleId(null);
     if (isMobile) {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -764,12 +852,10 @@ const VadeMecum: React.FC = () => {
     setSelectedGroupCodes([]);
     setSelectedError(null);
     setArticleQuery("");
-    setFocusedArticleId(null);
   };
 
   const handleArticleSelect = React.useCallback(
     (articleId: string) => {
-      setFocusedArticleId(articleId);
       if (typeof document !== "undefined") {
         const target = document.getElementById(`article-${articleId}`);
         target?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -781,49 +867,81 @@ const VadeMecum: React.FC = () => {
     [isMobile]
   );
 
-  const navArticles = React.useMemo(() => {
+  const articleNavGroups = React.useMemo<ArticleNavGroup[]>(() => {
     if (!selectedGroup) return [];
     const card = buildCardSections(selectedGroup, selectedGroupCodes);
-    const flattened = card.sections.flatMap((section) => section.items);
+    const codeById = new Map(selectedGroupCodes.map((code) => [code.id, code]));
+    const groups = new Map<string, ArticleNavGroup>();
 
-    const map = new Map<
-      string,
-      { key: string; articleId: string; articleNumber: string; orderLabel: string }
-    >();
-    flattened.forEach((item) => {
-      const key = item.articleNumber || item.orderLabel;
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          articleId: item.articleId,
-          articleNumber: item.articleNumber,
-          orderLabel: item.orderLabel,
-        });
-      }
+    card.sections.forEach((section) => {
+      section.items.forEach((item) => {
+        const code = codeById.get(item.articleId);
+        const parteRaw = code?.parte?.trim() || "Sem parte";
+        const parteKey = parteRaw.toLowerCase() || "sem-parte";
+        const parteOrder = code?.parte ? parseOrder(code.parte) : null;
+        const bucket =
+          groups.get(parteKey) ||
+          (() => {
+            const created: ArticleNavGroup = {
+              key: parteKey,
+              label: parteRaw,
+              order: parteOrder,
+              priority: getPartePriority(parteRaw),
+              items: [],
+            };
+            groups.set(parteKey, created);
+            return created;
+          })();
+
+        if (!bucket.items.some((entry) => entry.articleId === item.articleId)) {
+          bucket.items.push({
+            articleId: item.articleId,
+            label: item.articleNumber || item.orderLabel || "-",
+            order: parseOrder(item.articleNumber || item.orderLabel || ""),
+          });
+        }
+      });
     });
 
-    const parseArticleNumber = (value: string) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : null;
+    const sortByOrder = (
+      a: number | null,
+      b: number | null,
+      fallback: () => number
+    ) => {
+      if (a === null && b === null) return fallback();
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a - b;
     };
 
-    return Array.from(map.values()).sort((a, b) => {
-      const aNum = parseArticleNumber(a.articleNumber || a.orderLabel);
-      const bNum = parseArticleNumber(b.articleNumber || b.orderLabel);
-      if (aNum === null && bNum === null) return a.key.localeCompare(b.key, "pt-BR");
-      if (aNum === null) return 1;
-      if (bNum === null) return -1;
-      return aNum - bNum;
-    });
-  }, [buildCardSections, selectedGroup, selectedGroupCodes]);
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        items: [...group.items].sort((a, b) =>
+          sortByOrder(a.order, b.order, () => a.label.localeCompare(b.label, "pt-BR"))
+        ),
+      }))
+      .sort((a, b) =>
+        a.priority !== b.priority
+          ? a.priority - b.priority
+          : sortByOrder(a.order, b.order, () =>
+              a.label.localeCompare(b.label, "pt-BR")
+            )
+      );
+  }, [buildCardSections, getPartePriority, parseOrder, selectedGroup, selectedGroupCodes]);
 
-  const filteredNavArticles = React.useMemo(() => {
+  const filteredNavGroups = React.useMemo(() => {
     const term = articleQuery.trim().toLowerCase();
-    if (!term) return navArticles;
-    return navArticles.filter((item) =>
-      (item.articleNumber || item.orderLabel).toLowerCase().includes(term)
-    );
-  }, [articleQuery, navArticles]);
+    if (!term) return articleNavGroups;
+    return articleNavGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          item.label.toLowerCase().includes(term)
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [articleNavGroups, articleQuery]);
 
   return (
     <VadeMecumContainer>
@@ -856,7 +974,7 @@ const VadeMecum: React.FC = () => {
             ))}
           </TabsContainer>
           {loading ? (
-            <ItemList>
+            <ItemList singleColumn={activeTab === "codes"}>
               {Array.from({ length: 4 }).map((_, index) => (
                 <Card
                   key={index}
@@ -879,7 +997,7 @@ const VadeMecum: React.FC = () => {
               {visibleGroupsByTipo.map(({ tipo, groups }) => (
                 <GroupSection key={tipo}>
                   <GroupTitle>{tipo}</GroupTitle>
-                  <ItemList>
+                  <ItemList singleColumn={activeTab === "codes"}>
                     {groups.map((group) => (
                       <ItemCard key={group.key} onClick={() => openGroup(group.key)}>
                         <h3>{group.label}</h3>
@@ -943,35 +1061,41 @@ const VadeMecum: React.FC = () => {
                       <div style={{ marginTop: 20, display: "grid", gap: 16 }}>
                         {card.sections.map((section) => (
                           <div key={section.key}>
+                            {section.parteLine && (
+                              <p>
+                                <span className="article-part-label">
+                                  {section.parteLine}
+                                </span>
+                              </p>
+                            )}
                             <p>{section.livroLine}</p>
                             <p>{section.tituloLine}</p>
                             <p>{section.capituloLine}</p>
                             <div style={{ display: "grid", gap: 8 }}>
-                              {section.items.map((item, index) => (
-                                <p
-                                  key={`${section.key}-${index}`}
-                                  id={`article-${item.articleId}`}
-                                  style={{
-                                    whiteSpace: "pre-wrap",
-                                    scrollMarginTop: 90,
-                                    borderRadius: 8,
-                                    padding:
-                                      focusedArticleId === item.articleId
-                                        ? "10px 12px"
-                                        : "0px",
-                                    background:
-                                      focusedArticleId === item.articleId
-                                        ? "rgba(249, 115, 22, 0.12)"
-                                        : "transparent",
-                                    border:
-                                      focusedArticleId === item.articleId
-                                        ? "1px solid rgba(249, 115, 22, 0.35)"
-                                        : "1px solid transparent",
-                                  }}
-                                >
-                                  {item.orderLabel}. {item.normativo}
-                                </p>
-                              ))}
+                              {section.items.map((item, index) => {
+                                const orderPrefix = item.orderLabel ? `${item.orderLabel}. ` : "";
+                                const { before, art, after } = splitArticleHighlight(
+                                  item.normativo
+                                );
+                                return (
+                                  <p
+                                    key={`${section.key}-${index}`}
+                                    id={`article-${item.articleId}`}
+                                    style={{
+                                      whiteSpace: "pre-wrap",
+                                      scrollMarginTop: 90,
+                                      borderRadius: 8,
+                                    }}
+                                  >
+                                    {orderPrefix}
+                                    {before}
+                                    {art ? (
+                                      <span className="article-label">{art}</span>
+                                    ) : null}
+                                    {after}
+                                  </p>
+                                );
+                              })}
                             </div>
                           </div>
                         ))}
@@ -997,21 +1121,29 @@ const VadeMecum: React.FC = () => {
                   Limpar
                 </SearchButton>
               </SearchContainer>
-              <ArticleGrid>
-                {filteredNavArticles.map((item) => {
-                  const label = item.articleNumber || item.orderLabel;
-                  return (
-                    <ArticleButton
-                      key={item.key}
-                      type="button"
-                      active={focusedArticleId === item.articleId}
-                      onClick={() => handleArticleSelect(item.articleId)}
-                    >
-                      Art. {label || "-"}
-                    </ArticleButton>
-                  );
-                })}
-              </ArticleGrid>
+              <ArticleGroupsWrapper>
+                {filteredNavGroups.map((group) => (
+                  <ArticleGroup key={group.key}>
+                    <ArticleGroupTitle>{group.label}</ArticleGroupTitle>
+                    <ArticleGrid>
+                      {group.items.map((item) => (
+                        <ArticleButton
+                          key={`${group.key}-${item.articleId}`}
+                          type="button"
+                          onClick={() => handleArticleSelect(item.articleId)}
+                        >
+                          Art. {item.label || "-"}
+                        </ArticleButton>
+                      ))}
+                    </ArticleGrid>
+                  </ArticleGroup>
+                ))}
+                {filteredNavGroups.length === 0 && (
+                  <p style={{ textAlign: "center", color: "var(--text-secondary)" }}>
+                    Nenhum artigo encontrado
+                  </p>
+                )}
+              </ArticleGroupsWrapper>
             </NavigationPanel>
           </ContentArea>
         </>
