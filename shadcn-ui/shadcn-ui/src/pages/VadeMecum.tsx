@@ -1,4 +1,5 @@
 import React from "react";
+import { buildApiUrl } from "@/lib/api";
 import styled from "styled-components";
 import {
   ArrowLeft,
@@ -55,7 +56,7 @@ type VadeMecumGroup = {
 };
 
 const TOKEN_KEY = "pantheon:token";
-const VADE_API_URL = "http://localhost:8080/api/v1/vade-mecum/codigos";
+const VADE_API_URL = buildApiUrl("/vade-mecum/codigos");
 
 const VadeMecumContainer = styled.div`
   padding: 24px;
