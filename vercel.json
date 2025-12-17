@@ -1,5 +1,5 @@
 {
-  "installCommand": "cd shadcn-ui && pnpm install",
+  "installCommand": "node vercel-install.mjs",
   "buildCommand": "node build-and-copy.mjs",
   "outputDirectory": "dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/" }]
