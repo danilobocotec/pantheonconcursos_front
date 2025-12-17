@@ -1,1 +1,6 @@
-{ "rewrites": [{ "source": "/(.*)", "destination": "/" }] }
+{
+  "installCommand": "cd shadcn-ui && npm install",
+  "buildCommand": "cd shadcn-ui && npm run build",
+  "outputDirectory": "shadcn-ui/dist",
+  "rewrites": [{ "source": "/(.*)", "destination": "/" }]
+}
