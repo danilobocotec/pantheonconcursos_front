@@ -1,4 +1,5 @@
 ﻿import React from "react";
+import { buildApiUrl } from "@/lib/api";
 import type { LucideIcon } from "lucide-react";
 import {
   Menu,
@@ -56,241 +57,86 @@ const stats: Stat[] = [
 export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [openFaq, setOpenFaq] = React.useState<number | null>(0);
-  const [authMode, setAuthMode] = React.useState<"login" | "register">("login");
   const [loginModalOpen, setLoginModalOpen] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [rememberMe, setRememberMe] = React.useState(false);
-  const [fullName, setFullName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [confirmPassword, setConfirmPassword] = React.useState("");
-  const [authLoading, setAuthLoading] = React.useState(false);
-  const [authError, setAuthError] = React.useState("");
-
-  const isRegisterMode = authMode === "register";
-
-  const resetAuthFields = () => {
-    setFullName("");
-    setEmail("");
-    setPassword("");
-    setConfirmPassword("");
-    setRememberMe(false);
-    setShowPassword(false);
-    setShowConfirmPassword(false);
-  };
-
-  const closeAuthModal = () => {
-    setLoginModalOpen(false);
-    setAuthMode("login");
-    setAuthError("");
-    setAuthLoading(false);
-    resetAuthFields();
-  };
-
-  const openAuthModal = (mode: "login" | "register" = "login") => {
-    resetAuthFields();
-    setAuthMode(mode);
-    setAuthError("");
-    setAuthLoading(false);
-
-    if (mode === "login" && typeof window !== "undefined") {
-      const storedEmail = window.localStorage.getItem("pantheon:lastEmail");
-      if (storedEmail) {
-        setEmail(storedEmail);
-        setRememberMe(true);
-      }
-    }
-
-    setLoginModalOpen(true);
-  };
-
-  const switchAuthMode = (mode: "login" | "register") => {
-    setAuthMode(mode);
-    setAuthError("");
-    setAuthLoading(false);
-    setPassword("");
-    setConfirmPassword("");
-    setFullName("");
-    setShowPassword(false);
-    setShowConfirmPassword(false);
-    if (mode === "register") {
-      setRememberMe(false);
-    }
-  };
-
-  const safeParseJson = (input: string) => {
-    try {
-      return input ? JSON.parse(input) : {};
-    } catch (parseError) {
-      console.warn("Não foi possível converter a resposta em JSON.", parseError);
-      return {};
-    }
-  };
-
-  const handleAuthSuccess = (
-    payload: unknown,
-    userEmail: string,
-    options?: { rememberEmail?: boolean }
-  ) => {
-    const data =
-      payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
-    const user =
-      data.user && typeof data.user === "object" ? (data.user as Record<string, unknown>) : {};
-
-    const rawRole =
-      (user.role as string | undefined) ??
-      (user.profile as string | undefined) ??
-      (data.role as string | undefined) ??
-      "";
-    const role = rawRole?.toString().toLowerCase() ?? "";
-    const isAdmin = role.includes("admin");
-
-    if (typeof window !== "undefined") {
-      const nestedData =
-        data.data && typeof data.data === "object"
-          ? (data.data as Record<string, unknown>)
-          : undefined;
-      const token =
-        (data.token as string | undefined) ??
-        (data.accessToken as string | undefined) ??
-        (nestedData?.token as string | undefined);
-
-      if (token) {
-        window.localStorage.setItem("pantheon:token", token);
-      }
-
-      window.localStorage.setItem("pantheon:isAdmin", String(isAdmin));
-      if (role) {
-        window.localStorage.setItem("pantheon:role", role);
-      }
-
-      if (options?.rememberEmail) {
-        window.localStorage.setItem("pantheon:lastEmail", userEmail);
-      } else {
-        window.localStorage.removeItem("pantheon:lastEmail");
-      }
-    }
-
-    closeAuthModal();
-    onNavigate?.(isAdmin ? "admin-dashboard" : "visao-geral");
-  };
+  const [loginLoading, setLoginLoading] = React.useState(false);
+  const [loginError, setLoginError] = React.useState("");
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const trimmedEmail = email.trim();
-
-    if (!trimmedEmail || !password) {
-      setAuthError("Informe e-mail e senha.");
+    if (!email || !password) {
+      setLoginError("Informe e-mail e senha.");
       return;
     }
 
-    setAuthError("");
-    setAuthLoading(true);
+    setLoginError("");
+    setLoginLoading(true);
 
     try {
-      const response = await fetch("http://localhost:8080/api/v1/auth/login", {
+      const response = await fetch(buildApiUrl("/auth/login"), {
         method: "POST",
         headers: {
           accept: "application/json",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email: trimmedEmail, password }),
+        body: JSON.stringify({ email, password }),
       });
 
-      const rawBody = await response.text();
       if (!response.ok) {
+        const message = await response.text();
         throw new Error(
-          rawBody || "Não foi possível autenticar. Verifique suas credenciais."
+          message || "Não foi possível autenticar. Verifique suas credenciais."
         );
       }
 
-      const data = safeParseJson(rawBody);
-      handleAuthSuccess(data, trimmedEmail, { rememberEmail: rememberMe });
+      const data = await response.json();
+      const role = (
+        data?.user?.role ||
+        data?.role ||
+        data?.user?.profile ||
+        ""
+      )
+        .toString()
+        .toLowerCase();
+      const isAdmin = role.includes("admin");
+
+      if (typeof window !== "undefined") {
+        if (data?.token || data?.accessToken) {
+          window.localStorage.setItem(
+            "pantheon:token",
+            data?.token || data?.accessToken
+          );
+        }
+        window.localStorage.setItem("pantheon:isAdmin", String(isAdmin));
+        if (role) {
+          window.localStorage.setItem("pantheon:role", role);
+        }
+        if (rememberMe) {
+          window.localStorage.setItem("pantheon:lastEmail", email);
+        } else {
+          window.localStorage.removeItem("pantheon:lastEmail");
+        }
+      }
+
+      setLoginModalOpen(false);
+      setEmail("");
+      setPassword("");
+      setRememberMe(false);
+      onNavigate?.(isAdmin ? "admin-dashboard" : "visao-geral");
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "Erro inesperado ao autenticar.";
-      setAuthError(message);
+      setLoginError(message);
     } finally {
-      setAuthLoading(false);
+      setLoginLoading(false);
     }
   };
-
-  const handleRegister = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const trimmedFullName = fullName.trim();
-    const trimmedEmail = email.trim();
-
-    if (!trimmedFullName || !trimmedEmail || !password || !confirmPassword) {
-      setAuthError("Preencha todos os campos obrigatórios.");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setAuthError("As senhas não conferem.");
-      return;
-    }
-
-    setAuthError("");
-    setAuthLoading(true);
-
-    try {
-      const response = await fetch("http://localhost:8080/api/v1/auth/register", {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: trimmedEmail,
-          password,
-          confirm: confirmPassword,
-          full_name: trimmedFullName,
-        }),
-      });
-
-      const rawBody = await response.text();
-      if (!response.ok) {
-        throw new Error(
-          rawBody || "Não foi possível criar sua conta. Tente novamente mais tarde."
-        );
-      }
-
-      const data = safeParseJson(rawBody);
-      handleAuthSuccess(data, trimmedEmail, { rememberEmail: true });
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Erro inesperado ao criar conta.";
-      setAuthError(message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  React.useEffect(() => {
-    if (!loginModalOpen || authMode !== "login") {
-      return;
-    }
-
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const storedEmail = window.localStorage.getItem("pantheon:lastEmail");
-    if (storedEmail) {
-      setEmail(storedEmail);
-      setRememberMe(true);
-    } else {
-      setRememberMe(false);
-      setEmail("");
-    }
-  }, [authMode, loginModalOpen]);
 
   return (
     <div className="min-h-screen bg-white">
@@ -335,7 +181,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 
             <button
               className="hidden md:block bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:shadow-lg transition-all hover:scale-105"
-              onClick={() => openAuthModal("login")}
+              onClick={() => setLoginModalOpen(true)}
             >
               Entrar
             </button>
@@ -380,7 +226,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
               </button>
               <button
                 className="w-full bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-3 rounded-lg font-semibold"
-                onClick={() => openAuthModal("login")}
+                onClick={() => setLoginModalOpen(true)}
               >
                 Entrar
               </button>
@@ -392,7 +238,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full relative animate-in fade-in zoom-in duration-200">
             <button
-              onClick={closeAuthModal}
+              onClick={() => setLoginModalOpen(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
             >
               <X className="w-6 h-6" />
@@ -401,9 +247,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
             <div className="p-8">
               <div className="mb-8">
                 <h2 className="text-2xl font-bold text-gray-900 mb-1">
-                  {isRegisterMode
-                    ? "Faça sua conta Pantheon e seja Aprovado!"
-                    : "Faça login com sua conta"}
+                  Faça login com sua conta
                 </h2>
                 <p className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
                   Pantheon
@@ -411,28 +255,20 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
               </div>
 
               <div className="space-y-3 mb-6">
-                <button
-                  className="w-full flex items-center gap-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                  disabled={authLoading}
-                >
+                <button className="w-full flex items-center gap-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
                   <img
                     src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTIyLjU2IDEyLjI1YzAtLjc4LS4wNy0xLjUzLS4yLTIuMjVIMTJ2NC4yNmg1LjkyYy0uMjYgMS4zNy0xLjA0IDIuNTMtMi4yMSAzLjMxdjIuNzdoMy41N2MyLjA4LTEuOTIgMy4yOC00Ljc0IDMuMjgtOC4wOXoiIGZpbGw9IiM0Mjg1RjQiLz48cGF0aCBkPSJNMTIgMjNjMi45NyAwIDUuNDYtLjk4IDcuMjgtMi42NmwtMy41Ny0yLjc3Yy0uOTguNjYtMi4yMyAxLjA2LTMuNzEgMS4wNi0yLjg2IDAtNS4yOS0xLjkzLTYuMTYtNC41M0gyLjE4djIuODRDMy45OSAyMC41MyA3LjcgMjMgMTIgMjN6IiBmaWxsPSIjMzRBODUzIi8+PHBhdGggZD0iTTUuODQgMTQuMDljLS4yMi0uNjYtLjM1LTEuMzYtLjM1LTIuMDlzLjEzLTEuNDMuMzUtMi4wOVY3LjA3SDIuMThDMS40MyA4LjU1IDEgMTAuMjIgMSAxMnMuNDMgMy40NSAxLjE4IDQuOTNsMi44NS0yLjIyLjgxLS42MnoiIGZpbGw9IiNGQkJDMDUiLz48cGF0aCBkPSJNMTIgNS4zOGMyLjYyIDAgNC44OC45IDYuNyAyLjY2bDUuMDMtNS4wM0MxOS43MSAxLjc5IDE2LjEyIDAgMTIgMCA3LjcgMCAzLjk5IDIuNDcgMi4xOCA2LjEybDMuNjYgMi44NC44Ny0yLjYgMy4zLTQuNTggNi4xNi00LjU4eiIgZmlsbD0iI0VBNDMzNSIvPjwvc3ZnPg=="
                     alt="Google"
                     className="w-5 h-5"
                   />
                   <span className="text-gray-700 font-medium">
-                    {isRegisterMode ? "Criar conta com Google" : "Entrar com Google"}
+                    Entrar com Google
                   </span>
                 </button>
 
-                <button
-                  className="w-full flex items-center gap-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                  disabled={authLoading}
-                >
+                <button className="w-full flex items-center gap-3 px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
                   <span className="text-gray-700 font-medium">
-                    {isRegisterMode
-                      ? "Criar conta com Facebook"
-                      : "Entrar com Facebook"}
+                    Entrar com Facebook
                   </span>
                 </button>
               </div>
@@ -443,31 +279,12 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 </div>
                 <div className="relative flex justify-center text-sm">
                   <span className="px-2 bg-white text-gray-500">
-                    {isRegisterMode ? "Ou registre com e-mail" : "Ou entre com e-mail"}
+                    Ou entre com e-mail
                   </span>
                 </div>
               </div>
 
-              <form
-                className="space-y-4"
-                onSubmit={isRegisterMode ? handleRegister : handleLogin}
-              >
-                {isRegisterMode && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      Nome completo:
-                    </label>
-                    <input
-                      type="text"
-                      value={fullName}
-                      onChange={(event) => setFullName(event.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      disabled={authLoading}
-                      autoComplete="name"
-                    />
-                  </div>
-                )}
-
+              <form className="space-y-4" onSubmit={handleLogin}>
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">
                     Email:
@@ -475,9 +292,9 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   <input
                     type="email"
                     value={email}
-                    onChange={(event) => setEmail(event.target.value)}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                    disabled={authLoading}
+                    disabled={loginLoading}
                     autoComplete="email"
                   />
                 </div>
@@ -490,16 +307,16 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                     <input
                       type={showPassword ? "text" : "password"}
                       value={password}
-                      onChange={(event) => setPassword(event.target.value)}
+                      onChange={(e) => setPassword(e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent pr-12"
-                      disabled={authLoading}
-                      autoComplete={isRegisterMode ? "new-password" : "current-password"}
+                      disabled={loginLoading}
+                      autoComplete="current-password"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-70"
-                      disabled={authLoading}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-70"
+                      disabled={loginLoading}
                     >
                       {showPassword ? (
                         <EyeOff className="w-5 h-5" />
@@ -510,109 +327,52 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   </div>
                 </div>
 
-                {isRegisterMode && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-2">
-                      Confirme sua senha:
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showConfirmPassword ? "text" : "password"}
-                        value={confirmPassword}
-                        onChange={(event) => setConfirmPassword(event.target.value)}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent pr-12"
-                        disabled={authLoading}
-                        autoComplete="new-password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-70"
-                        disabled={authLoading}
-                      >
-                        {showConfirmPassword ? (
-                          <EyeOff className="w-5 h-5" />
-                        ) : (
-                          <Eye className="w-5 h-5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="rememberMe"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                    disabled={loginLoading}
+                  />
+                  <label
+                    htmlFor="rememberMe"
+                    className="ml-2 text-sm text-gray-700"
+                  >
+                    Lembrar senha
+                  </label>
+                </div>
 
-                {!isRegisterMode && (
-                  <>
-                    <div className="flex items-center">
-                      <input
-                        type="checkbox"
-                        id="rememberMe"
-                        checked={rememberMe}
-                        onChange={(event) => setRememberMe(event.target.checked)}
-                        className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                        disabled={authLoading}
-                      />
-                      <label
-                        htmlFor="rememberMe"
-                        className="ml-2 text-sm text-gray-700"
-                      >
-                        Lembrar e-mail nesta máquina
-                      </label>
-                    </div>
-                    <div className="text-sm">
-                      <a className="text-blue-600 hover:text-blue-700" href="#">
-                        Esqueci minha senha
-                      </a>
-                    </div>
-                  </>
-                )}
+                <div className="text-sm">
+                  <a href="#" className="text-blue-600 hover:text-blue-700">
+                    Esqueci minha senha
+                  </a>
+                </div>
 
-                {authError && (
+                <div className="text-sm text-gray-700">
+                  Não tem conta?{" "}
+                  <a
+                    href="#"
+                    className="text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    Criar uma Conta
+                  </a>
+                </div>
+
+                {loginError && (
                   <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                    {authError}
+                    {loginError}
                   </div>
                 )}
 
                 <button
                   type="submit"
                   className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
-                  disabled={authLoading}
+                  disabled={loginLoading}
                 >
-                  {authLoading
-                    ? isRegisterMode
-                      ? "Criando conta..."
-                      : "Entrando..."
-                    : isRegisterMode
-                      ? "Criar conta"
-                      : "Entrar"}
+                  {loginLoading ? "Entrando..." : "Entrar"}
                 </button>
-
-                <div className="text-sm text-gray-700 text-center">
-                  {isRegisterMode ? (
-                    <>
-                      Já possui conta?{" "}
-                      <button
-                        type="button"
-                        className="ml-1 text-blue-600 hover:text-blue-700 font-medium"
-                        onClick={() => switchAuthMode("login")}
-                        disabled={authLoading}
-                      >
-                        Entrar
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      Não tem conta?{" "}
-                      <button
-                        type="button"
-                        className="ml-1 text-blue-600 hover:text-blue-700 font-medium"
-                        onClick={() => switchAuthMode("register")}
-                        disabled={authLoading}
-                      >
-                        Criar uma conta
-                      </button>
-                    </>
-                  )}
-                </div>
               </form>
             </div>
           </div>
@@ -1524,3 +1284,5 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 };
 
 export default PantheonConcursos;
+
+

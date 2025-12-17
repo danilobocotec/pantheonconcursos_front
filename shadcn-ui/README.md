@@ -1,8 +1,6 @@
-# pantheonconcursos_front
+# Shadcn-UI Template Usage Instructions
 
-## Shadcn-UI Template Usage Instructions
-
-### Technology Stack
+## technology stack
 
 This project is built with:
 
@@ -14,7 +12,7 @@ This project is built with:
 
 All shadcn/ui components have been downloaded under `@/components/ui`.
 
-### File Structure
+## File Structure
 
 - `index.html` - HTML entry point
 - `vite.config.ts` - Vite configuration file
@@ -25,26 +23,26 @@ All shadcn/ui components have been downloaded under `@/components/ui`.
 - `src/index.css` - Existing CSS configuration
 - `src/pages/Index.tsx` - Home page logic
 
-### Components
+## Components
 
 - All shadcn/ui components are pre-downloaded and available at `@/components/ui`
 
-### Styling
+## Styling
 
 - Add global styles to `src/index.css` or create new CSS files as needed
 - Use Tailwind classes for styling components
 
-### Development
+## Development
 
 - Import components from `@/components/ui` in your React components
 - Customize the UI by modifying the Tailwind configuration
 
-### Notes
+## Note
 
 - The `@/` path alias points to the `src/` directory
-- In your TypeScript code, avoid re-exporting types that you are already importing
+- In your typescript code, don't re-export types that you're already importing
 
-## Commands
+# Commands
 
 **Install Dependencies**
 
@@ -56,7 +54,6 @@ pnpm i
 
 ```shell
 pnpm add some_new_dependency
-```
 
 **Start Preview**
 
@@ -64,7 +61,7 @@ pnpm add some_new_dependency
 pnpm run dev
 ```
 
-**Build**
+**To build**
 
 ```shell
 pnpm run build
