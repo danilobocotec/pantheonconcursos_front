@@ -62,21 +62,99 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
   const [rememberMe, setRememberMe] = React.useState(false);
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [fullName, setFullName] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [isRegisterMode, setIsRegisterMode] = React.useState(false);
+  const [authSuccess, setAuthSuccess] = React.useState("");
   const [loginLoading, setLoginLoading] = React.useState(false);
   const [loginError, setLoginError] = React.useState("");
 
-  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+  const persistSession = React.useCallback(
+    (data: any, emailValue: string, nameValue?: string) => {
+      const role = (
+        data?.user?.role ||
+        data?.role ||
+        data?.user?.profile ||
+        ""
+      )
+        .toString()
+        .toLowerCase();
+      const isAdmin = role.includes("admin");
+      const resolvedName =
+        data?.user?.full_name ||
+        data?.full_name ||
+        nameValue ||
+        emailValue ||
+        "Usuário";
+
+      if (typeof window !== "undefined") {
+        if (data?.token || data?.accessToken) {
+          window.localStorage.setItem(
+            "pantheon:token",
+            data?.token || data?.accessToken
+          );
+        }
+        window.localStorage.setItem("pantheon:isAdmin", String(isAdmin));
+        if (role) {
+          window.localStorage.setItem("pantheon:role", role);
+        }
+        if (resolvedName) {
+          window.localStorage.setItem("pantheon:fullName", resolvedName);
+        }
+        if (rememberMe) {
+          window.localStorage.setItem("pantheon:lastEmail", emailValue);
+        } else {
+          window.localStorage.removeItem("pantheon:lastEmail");
+        }
+      }
+
+      onNavigate?.("visao-geral");
+    },
+    [onNavigate, rememberMe]
+  );
+
+  const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!email || !password) {
-      setLoginError("Informe e-mail e senha.");
-      return;
-    }
-
     setLoginError("");
+    setAuthSuccess("");
     setLoginLoading(true);
 
     try {
+      if (isRegisterMode) {
+        if (!fullName || !email || !password || !confirmPassword) {
+          throw new Error("Preencha nome, e-mail e senha.");
+        }
+        if (password !== confirmPassword) {
+          throw new Error("As senhas não conferem.");
+        }
+
+        const registerResponse = await fetch(buildApiUrl("/auth/register"), {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            full_name: fullName,
+            email,
+            password,
+            confirm: confirmPassword,
+          }),
+        });
+
+        if (!registerResponse.ok) {
+          const message = await registerResponse.text();
+          throw new Error(message || "Não foi possível registrar.");
+        }
+
+        setAuthSuccess("Cadastro realizado! Entrando...");
+      }
+
+      if (!email || !password) {
+        throw new Error("Informe e-mail e senha.");
+      }
+
       const response = await fetch(buildApiUrl("/auth/login"), {
         method: "POST",
         headers: {
@@ -94,44 +172,19 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
       }
 
       const data = await response.json();
-      const role = (
-        data?.user?.role ||
-        data?.role ||
-        data?.user?.profile ||
-        ""
-      )
-        .toString()
-        .toLowerCase();
-      const isAdmin = role.includes("admin");
-
-      if (typeof window !== "undefined") {
-        if (data?.token || data?.accessToken) {
-          window.localStorage.setItem(
-            "pantheon:token",
-            data?.token || data?.accessToken
-          );
-        }
-        window.localStorage.setItem("pantheon:isAdmin", String(isAdmin));
-        if (role) {
-          window.localStorage.setItem("pantheon:role", role);
-        }
-        if (rememberMe) {
-          window.localStorage.setItem("pantheon:lastEmail", email);
-        } else {
-          window.localStorage.removeItem("pantheon:lastEmail");
-        }
-      }
+      persistSession(data, email, fullName);
 
       setLoginModalOpen(false);
       setEmail("");
       setPassword("");
+      setConfirmPassword("");
+      setFullName("");
       setRememberMe(false);
-      onNavigate?.(isAdmin ? "admin-dashboard" : "visao-geral");
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : "Erro inesperado ao autenticar.";
+          : "Erro inesperado ao autenticar/registrar.";
       setLoginError(message);
     } finally {
       setLoginLoading(false);
@@ -169,7 +222,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 onClick={() => onNavigate?.("aprova-oab")}
                 className="text-gray-700 hover:text-orange-600 transition-colors font-medium"
               >
-                Quero ser aprovada
+                Quero ser aprovado
               </button>
               <button
                 onClick={() => onNavigate?.("admin-dashboard")}
@@ -216,7 +269,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 onClick={() => onNavigate?.("aprova-oab")}
                 className="block text-left w-full text-gray-700 hover:text-orange-600 transition-colors font-medium"
               >
-                Quero ser aprovada
+                Quero ser aprovado
               </button>
               <button
                 onClick={() => onNavigate?.("admin-dashboard")}
@@ -245,9 +298,9 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
             </button>
 
             <div className="p-8">
-              <div className="mb-8">
+                            <div className="mb-8">
                 <h2 className="text-2xl font-bold text-gray-900 mb-1">
-                  Faça login com sua conta
+                  {isRegisterMode ? "Crie sua conta" : "Faça login com sua conta"}
                 </h2>
                 <p className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
                   Pantheon
@@ -279,12 +332,28 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 </div>
                 <div className="relative flex justify-center text-sm">
                   <span className="px-2 bg-white text-gray-500">
-                    Ou entre com e-mail
+                    {isRegisterMode ? "Cadastre-se com e-mail" : "Ou entre com e-mail"}
                   </span>
                 </div>
               </div>
 
-              <form className="space-y-4" onSubmit={handleLogin}>
+              <form className="space-y-4" onSubmit={handleAuth}>
+                {isRegisterMode && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Nome completo:
+                    </label>
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      disabled={loginLoading}
+                      autoComplete="name"
+                    />
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">
                     Email:
@@ -310,7 +379,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent pr-12"
                       disabled={loginLoading}
-                      autoComplete="current-password"
+                      autoComplete={isRegisterMode ? "new-password" : "current-password"}
                     />
                     <button
                       type="button"
@@ -326,6 +395,22 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                     </button>
                   </div>
                 </div>
+
+                {isRegisterMode && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Confirmar senha:
+                    </label>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      disabled={loginLoading}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                )}
 
                 <div className="flex items-center">
                   <input
@@ -351,13 +436,18 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 </div>
 
                 <div className="text-sm text-gray-700">
-                  Não tem conta?{" "}
-                  <a
-                    href="#"
+                  {isRegisterMode ? "Já tem conta?" : "Não tem conta?"}{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsRegisterMode((previous) => !previous);
+                      setLoginError("");
+                      setAuthSuccess("");
+                    }}
                     className="text-blue-600 hover:text-blue-700 font-medium"
                   >
-                    Criar uma Conta
-                  </a>
+                    {isRegisterMode ? "Fazer login" : "Criar uma Conta"}
+                  </button>
                 </div>
 
                 {loginError && (
@@ -366,12 +456,22 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   </div>
                 )}
 
+                {authSuccess && (
+                  <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    {authSuccess}
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
                   disabled={loginLoading}
                 >
-                  {loginLoading ? "Entrando..." : "Entrar"}
+                  {loginLoading
+                    ? "Enviando..."
+                    : isRegisterMode
+                    ? "Cadastrar e entrar"
+                    : "Entrar"}
                 </button>
               </form>
             </div>
@@ -388,7 +488,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
             <div className="flex-1 space-y-6">
               <div className="inline-block">
                 <span className="bg-gradient-to-r from-orange-500 to-red-600 text-white px-4 py-2 rounded-full text-sm font-semibold shadow-lg">
-                  ?? A Melhor Plataforma de Concursos do Brasil
+                  A Melhor Plataforma de Concursos do Brasil
                 </span>
               </div>
               <h1 className="text-4xl md:text-6xl font-bold text-gray-900 leading-tight">
@@ -404,8 +504,11 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 confiam no Pantheon Concursos.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
-                <button className="bg-gradient-to-r from-orange-500 to-red-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center gap-2">
-                  Começar Agora
+                <button
+                  className="bg-gradient-to-r from-orange-500 to-red-600 text-white px-8 py-4 rounded-lg font-semibold text-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center gap-2"
+                  onClick={() => onNavigate?.("aprova-oab")}
+                >
+                  Quero ser aprovado
                   <ChevronRight className="w-5 h-5" />
                 </button>
                 <button className="border-2 border-orange-600 text-orange-600 px-8 py-4 rounded-lg font-semibold text-lg hover:bg-orange-50 transition-all">
@@ -743,7 +846,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
               </div>
 
               <h3 className="text-2xl font-bold text-white mb-6">
-                OAB 1ª Fase Vitalício
+                OAB 1Â¬ Fase VitalÃcio
               </h3>
 
               <div className="mb-6">
@@ -760,7 +863,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   <span className="text-4xl font-bold text-white">39,90</span>
                 </div>
                 <p className="text-sm text-red-200 mt-1">
-                  ou 399,00 à vista no PIX
+                  ou 399,00 Ã“ vista no PIX
                 </p>
               </div>
 
@@ -772,23 +875,23 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />
                   <span className="text-white">
-                    Acesso VITALÍCIO à TODO conteúdo da 1ª Fase da OAB
+                    Acesso VITALâ•CIO Ã“ TODO conteÂ·do da 1Â¬ Fase da OAB
                   </span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />
-                  <span className="text-white">Envio de Simulados Diários</span>
+                  <span className="text-white">Envio de Simulados DiÃŸrios</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />
                   <span className="text-white">
-                    Sistema de Questões com + 100 mil questões on-line
+                    Sistema de QuestÂ§es com + 100 mil questÂ§es on-line
                   </span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />
                   <span className="text-white">
-                    Acesso Imediato à TODA 1ª Fase da OAB
+                    Acesso Imediato Ã“ TODA 1Â¬ Fase da OAB
                   </span>
                 </li>
                 <li className="flex items-start gap-3">
@@ -804,7 +907,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-white flex-shrink-0 mt-0.5" />
                   <span className="text-white">
-                    + 1.000 Livros digitais (teoria baseada nas questões)
+                    + 1.000 Livros digitais (teoria baseada nas questÂ§es)
                   </span>
                 </li>
               </ul>
@@ -812,7 +915,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 
             <div className="bg-white border-2 border-gray-200 rounded-3xl p-8 hover:shadow-2xl transition-all relative">
               <h3 className="text-2xl font-bold text-gray-900 mb-6">
-                OAB 1ª e 2ª Fase Anual
+                OAB 1Â¬ e 2Â¬ Fase Anual
               </h3>
 
               <div className="mb-6">
@@ -831,7 +934,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   </span>
                 </div>
                 <p className="text-sm text-gray-600 mt-1">
-                  ou 599,00 à vista no PIX
+                  ou 599,00 Ã“ vista no PIX
                 </p>
               </div>
 
@@ -843,20 +946,20 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                   <span className="text-gray-700">
-                    Acesso Imediato à TODA 1ª Fase da OAB
+                    Acesso Imediato Ã“ TODA 1Â¬ Fase da OAB
                   </span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                   <span className="text-gray-700">
-                    Acesso Imediato à 2ª Fase da OAB (Direito do Trabalho;
+                    Acesso Imediato Ã“ 2Â¬ Fase da OAB (Direito do Trabalho;
                     Direito Penal e Direito Civil)
                   </span>
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                   <span className="text-gray-700">
-                    Sistema de Questões com + 100 mil questões on-line
+                    Sistema de QuestÂ§es com + 100 mil questÂ§es on-line
                   </span>
                 </li>
                 <li className="flex items-start gap-3">
@@ -872,7 +975,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 <li className="flex items-start gap-3">
                   <Check className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                   <span className="text-gray-700">
-                    + 1.000 Livros digitais (teoria baseada nas questões)
+                    + 1.000 Livros digitais (teoria baseada nas questÂ§es)
                   </span>
                 </li>
               </ul>
@@ -896,20 +999,20 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   <tr className="border-b-2 border-gray-200">
                     <th className="text-left p-6 font-bold text-gray-900 w-1/2"></th>
                     <th className="text-center p-6 font-bold text-gray-900">
-                      OAB 1ª Fase Anual
+                      OAB 1Â¬ Fase Anual
                     </th>
                     <th className="text-center p-6 font-bold text-gray-900 bg-red-50">
-                      OAB 1ª Fase Vitalício
+                      OAB 1Â¬ Fase VitalÃcio
                     </th>
                     <th className="text-center p-6 font-bold text-gray-900">
-                      OAB 1ª e 2ª Fase Anual
+                      OAB 1Â¬ e 2Â¬ Fase Anual
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr className="border-b border-gray-100">
                     <td className="p-6 text-gray-700">
-                      Acesso Imediato à TODA 1ª Fase da OAB
+                      Acesso Imediato Ã“ TODA 1Â¬ Fase da OAB
                     </td>
                     <td className="p-6 text-center">
                       <div className="flex justify-center">
@@ -936,7 +1039,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 
                   <tr className="border-b border-gray-100">
                     <td className="p-6 text-gray-700">
-                      Sistema de Questões com + 100 mil questões on-line
+                      Sistema de QuestÂ§es com + 100 mil questÂ§es on-line
                     </td>
                     <td className="p-6 text-center">
                       <div className="flex justify-center">
@@ -1015,7 +1118,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 
                   <tr className="border-b border-gray-100">
                     <td className="p-6 text-gray-700">
-                      + 1.000 Livros digitais (teoria baseada nas questões)
+                      + 1.000 Livros digitais (teoria baseada nas questÂ§es)
                     </td>
                     <td className="p-6 text-center">
                       <div className="flex justify-center">
@@ -1042,7 +1145,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 
                   <tr className="border-b border-gray-100">
                     <td className="p-6 text-gray-700">
-                      Acesso Imediato à 2ª Fase da OAB (Direito do Trabalho;
+                      Acesso Imediato Ã“ 2Â¬ Fase da OAB (Direito do Trabalho;
                       Direito Penal e Direito Civil)
                     </td>
                     <td className="p-6 text-center">
@@ -1070,7 +1173,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 
                   <tr className="border-b border-gray-100">
                     <td className="p-6 text-gray-700">
-                      Acesso VITALÍCIO à TODO conteúdo da 1ª Fase da OAB.
+                      Acesso VITALâ•CIO Ã“ TODO conteÂ·do da 1Â¬ Fase da OAB.
                     </td>
                     <td className="p-6 text-center">
                       <div className="flex justify-center">
@@ -1143,11 +1246,11 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
             <h2 className="text-3xl md:text-5xl font-bold text-gray-900 mb-4">
               Ainda com{" "}
               <span className="bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
-                dúvidas?
+                dÂ·vidas?
               </span>
             </h2>
             <p className="text-xl text-gray-600">
-              Abaixo você encontra as perguntas mais comuns sobre o nosso curso
+              Abaixo vocÃ› encontra as perguntas mais comuns sobre o nosso curso
             </p>
           </div>
 
@@ -1171,40 +1274,40 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   <p>
                     Com o curso{" "}
                     <strong className="text-orange-600">
-                      OAB 1ª Fase Anual
+                      OAB 1Â¬ Fase Anual
                     </strong>{" "}
-                    você terá acesso durante 01 ano (contados após a compra) ao
-                    conteúdo completo para estudar para a 1ª Fase do Exame da
-                    OAB. Além disso você receberá acesso às Provas Anteriores da
-                    OAB para resolver on line. Todas as questões comentadas
+                    vocÃ› terÃŸ acesso durante 01 ano (contados apÂ¾s a compra) ao
+                    conteÂ·do completo para estudar para a 1Â¬ Fase do Exame da
+                    OAB. AlÃšm disso vocÃ› receberÃŸ acesso Ã“s Provas Anteriores da
+                    OAB para resolver on line. Todas as questÂ§es comentadas
                     pelos nossos professores.
                   </p>
                   <p>
                     Com o curso{" "}
                     <strong className="text-orange-600">
-                      OAB 1ª Fase Acesso Vitalício
+                      OAB 1Â¬ Fase Acesso VitalÃcio
                     </strong>{" "}
-                    você terá acesso vitalício ao conteúdo completo para estudar
-                    para a 1ª Fase do Exame da OAB. Além disso você receberá
-                    acesso às Provas Anteriores da OAB para resolver on line.
-                    Todas as questões comentadas pelos nossos professores. Você
-                    receberá também todos os dias no seu e-mail 01 Simulado
+                    vocÃ› terÃŸ acesso vitalÃcio ao conteÂ·do completo para estudar
+                    para a 1Â¬ Fase do Exame da OAB. AlÃšm disso vocÃ› receberÃŸ
+                    acesso Ã“s Provas Anteriores da OAB para resolver on line.
+                    Todas as questÂ§es comentadas pelos nossos professores. VocÃ›
+                    receberÃŸ tambÃšm todos os dias no seu e-mail 01 Simulado
                     Exclusivo para treinar para a prova. Todos os dias um
                     simulado diferente.
                   </p>
                   <p>
                     Com o curso{" "}
                     <strong className="text-orange-600">
-                      OAB 1ª e 2ª Fase Anual
+                      OAB 1Â¬ e 2Â¬ Fase Anual
                     </strong>{" "}
-                    você terá acesso durante 01 ano (contados após a compra) a
-                    todo o conteúdo disponível em nossa Plataforma. Tudo para
-                    você se preparar para as provas da 1ª e 2ª Fase do Exame de
-                    Ordem! Lembrando que na 2ª Fase disponibilizamos os cursos
+                    vocÃ› terÃŸ acesso durante 01 ano (contados apÂ¾s a compra) a
+                    todo o conteÂ·do disponÃvel em nossa Plataforma. Tudo para
+                    vocÃ› se preparar para as provas da 1Â¬ e 2Â¬ Fase do Exame de
+                    Ordem! Lembrando que na 2Â¬ Fase disponibilizamos os cursos
                     para as seguintes disciplinas: Direito Civil, Direito Penal
-                    e Direito do Trabalho. Além disso você receberá acesso às
+                    e Direito do Trabalho. AlÃšm disso vocÃ› receberÃŸ acesso Ã“s
                     Provas Anteriores da OAB para resolver on line. Todas as
-                    questões comentadas pelos nossos professores.
+                    questÂ§es comentadas pelos nossos professores.
                   </p>
                 </div>
               )}
@@ -1216,7 +1319,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 className="w-full px-8 py-6 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
               >
                 <span className="font-bold text-lg text-gray-900">
-                  O curso é totalmente online?
+                  O curso Ãš totalmente online?
                 </span>
                 <ChevronDown
                   className={`w-6 h-6 text-orange-600 transition-transform ${
@@ -1227,7 +1330,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
               {openFaq === 1 && (
                 <div className="px-8 pb-6 text-gray-700 leading-relaxed">
                   <p>
-                    Sim. Todo nosso curso será acessado de forma online, no seu
+                    Sim. Todo nosso curso serÃŸ acessado de forma online, no seu
                     computador, celular ou tablet.
                   </p>
                 </div>
@@ -1240,7 +1343,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                 className="w-full px-8 py-6 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
               >
                 <span className="font-bold text-lg text-gray-900">
-                  Até quando eu vou ter acesso ao meu curso?
+                  AtÃš quando eu vou ter acesso ao meu curso?
                 </span>
                 <ChevronDown
                   className={`w-6 h-6 text-orange-600 transition-transform ${
@@ -1251,10 +1354,10 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
               {openFaq === 2 && (
                 <div className="px-8 pb-6 text-gray-700 leading-relaxed">
                   <p>
-                    Nossos cursos para OAB 1ª Fase possuem a opção de acesso por
-                    1 ano contados após a compra ou o acesso vitalício. Você
-                    escolhe. Em relação ao nosso curso para a 2ª fase, seu
-                    acesso será por 1 ano contados após a compra.
+                    Nossos cursos para OAB 1Â¬ Fase possuem a opÃ¾Ã’o de acesso por
+                    1 ano contados apÂ¾s a compra ou o acesso vitalÃcio. VocÃ›
+                    escolhe. Em relaÃ¾Ã’o ao nosso curso para a 2Â¬ fase, seu
+                    acesso serÃŸ por 1 ano contados apÂ¾s a compra.
                   </p>
                 </div>
               )}
@@ -1270,11 +1373,14 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
             Pronto Para Conquistar Sua Aprovação?
           </h2>
           <p className="text-xl text-orange-100 mb-10 max-w-2xl mx-auto leading-relaxed">
-            Junte-se a milhares de alunos que já conquistaram seus sonhos com o
+            Junte-se a milhares de alunos que jÃŸ conquistaram seus sonhos com o
             Pantheon Concursos
           </p>
-          <button className="bg-white text-orange-600 px-10 py-4 rounded-lg font-bold text-lg hover:shadow-2xl transition-all hover:scale-105 inline-flex items-center gap-2">
-            Começar Minha Preparação Agora
+          <button
+            className="bg-white text-orange-600 px-10 py-4 rounded-lg font-bold text-lg hover:shadow-2xl transition-all hover:scale-105 inline-flex items-center gap-2"
+            onClick={() => onNavigate?.("aprova-oab")}
+          >
+            Quero ser aprovado
             <ChevronRight className="w-5 h-5" />
           </button>
         </div>
@@ -1284,5 +1390,30 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 };
 
 export default PantheonConcursos;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

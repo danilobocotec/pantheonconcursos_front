@@ -4,9 +4,10 @@ import App from './App';
 import Home from './pages/Home.tsx';
 import IndexPage from './pages/Index.tsx';
 import AdminDashboard from './pages/AdminDashboard.tsx';
+import AprovaOAB from './pages/AprovaOAB.tsx';
 import './index.css';
 
-type PageKey = 'home' | 'index' | 'admin' | 'admin-dashboard';
+type PageKey = 'home' | 'index' | 'admin' | 'admin-dashboard' | 'aprova-oab';
 
 const adminSectionMap: Record<string, string> = {
   'visao-geral': 'dashboard',
@@ -56,6 +57,11 @@ const RootApp = () => {
       return;
     }
 
+    if (target === 'aprova-oab') {
+      setCurrentPage('aprova-oab');
+      return;
+    }
+
     const section = adminSectionMap[target];
     if (section) {
       goToAdmin(section);
@@ -82,6 +88,10 @@ const RootApp = () => {
 
   if (currentPage === 'index') {
     return <IndexPage />;
+  }
+
+  if (currentPage === 'aprova-oab') {
+    return <AprovaOAB onNavigate={handleNavigate} />;
   }
 
   return <Home onNavigate={handleNavigate} />;

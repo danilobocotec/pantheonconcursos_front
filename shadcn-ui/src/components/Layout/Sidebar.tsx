@@ -364,6 +364,13 @@ const DropdownItem = styled.button`
 `;
 
 const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, isDarkMode, onThemeToggle }) => {
+    const [userFullName, setUserFullName] = useState('Usuário');
+
+    useEffect(() => {
+      if (typeof window !== 'undefined') {
+        setUserFullName(window.localStorage.getItem('pantheon:fullName') || 'Usuário');
+      }
+    }, []);
   const [openMenus, setOpenMenus] = useState<{ [key: string]: boolean }>({
     courses: false,
     questions: false
@@ -549,7 +556,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, isDar
               <User size={20} />
             </div>
             <div className="info">
-              <div className="name">João Silva</div>
+              <div className="name">{userFullName}</div>
               <div className="role">OAB 1ª e 2ª Fase Anual</div>
             </div>
             <ChevronDown 
