@@ -71,6 +71,8 @@ type ArticleNavGroup = {
 
 const TOKEN_KEY = "pantheon:token";
 const VADE_API_URL = buildApiUrl("/vade-mecum/codigos");
+const VADE_LAWS_URL = buildApiUrl("/vade-mecum/leis");
+const VADE_OAB_URL = buildApiUrl("/vade-mecum/oab");
 
 const VadeMecumContainer = styled.div`
   padding: 24px;
@@ -174,6 +176,9 @@ const NavigationPanel = styled.div<{ isOpen: boolean }>`
   top: 24px;
   max-height: calc(100vh - 48px);
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: ${(props) => `${props.theme.colors.accent}55`}
+    ${(props) => `${props.theme.colors.surface}00`};
 
   ${media.mobile} {
     position: fixed;
@@ -195,6 +200,21 @@ const NavigationPanel = styled.div<{ isOpen: boolean }>`
     max-height: none;
     overflow-y: auto;
     background: ${(props) => props.theme.colors.surface};
+  }
+
+  &::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: ${(props) => `${props.theme.colors.surface}33`};
+    border-radius: 999px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: ${(props) => props.theme.colors.accent};
+    border-radius: 999px;
+    border: 2px solid ${(props) => props.theme.colors.surface};
   }
 `;
 
@@ -491,9 +511,20 @@ const VadeMecum: React.FC = () => {
   const [codes, setCodes] = React.useState<VadeMecumCode[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [laws, setLaws] = React.useState<VadeMecumCode[]>([]);
+  const [lawsLoading, setLawsLoading] = React.useState(false);
+  const [lawsError, setLawsError] = React.useState<string | null>(null);
+  const [hasLoadedLaws, setHasLoadedLaws] = React.useState(false);
+  const [oabRecords, setOabRecords] = React.useState<VadeMecumCode[]>([]);
+  const [oabLoading, setOabLoading] = React.useState(false);
+  const [oabError, setOabError] = React.useState<string | null>(null);
+  const [hasLoadedOab, setHasLoadedOab] = React.useState(false);
   const [selectedGroupKey, setSelectedGroupKey] = React.useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = React.useState<VadeMecumGroup | null>(null);
   const [selectedGroupCodes, setSelectedGroupCodes] = React.useState<VadeMecumCode[]>([]);
+  const [selectedSource, setSelectedSource] = React.useState<"codes" | "laws" | "oab">(
+    "codes"
+  );
   const [selectedLoading, setSelectedLoading] = React.useState(false);
   const [selectedError, setSelectedError] = React.useState<string | null>(null);
   const [articleQuery, setArticleQuery] = React.useState("");
@@ -547,6 +578,66 @@ const VadeMecum: React.FC = () => {
   React.useEffect(() => {
     void loadCodes();
   }, [loadCodes]);
+
+  const loadLaws = React.useCallback(async () => {
+    setLawsLoading(true);
+    setLawsError(null);
+    try {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token =
+        typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(VADE_LAWS_URL, { headers });
+      if (!response.ok) {
+        throw new Error(`Falha ao carregar leis (${response.status})`);
+      }
+      const payload = await response.json();
+      setLaws(normalizeCollection(payload));
+      setHasLoadedLaws(true);
+    } catch (requestError) {
+      setLawsError(
+        requestError instanceof Error ? requestError.message : "Erro ao carregar leis."
+      );
+    } finally {
+      setLawsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (activeTab !== "laws") return;
+    if (hasLoadedLaws || lawsLoading) return;
+    void loadLaws();
+  }, [activeTab, hasLoadedLaws, lawsLoading, loadLaws]);
+
+  const loadOab = React.useCallback(async () => {
+    setOabLoading(true);
+    setOabError(null);
+    try {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token =
+        typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(VADE_OAB_URL, { headers });
+      if (!response.ok) {
+        throw new Error(`Falha ao carregar OAB (${response.status})`);
+      }
+      const payload = await response.json();
+      setOabRecords(normalizeCollection(payload));
+      setHasLoadedOab(true);
+    } catch (requestError) {
+      setOabError(
+        requestError instanceof Error ? requestError.message : "Erro ao carregar OAB."
+      );
+    } finally {
+      setOabLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (activeTab !== "oab") return;
+    if (hasLoadedOab || oabLoading) return;
+    void loadOab();
+  }, [activeTab, hasLoadedOab, loadOab, oabLoading]);
 
   const parseOrder = React.useCallback((value: string) => {
     const trimmed = value?.trim();
@@ -718,9 +809,9 @@ const VadeMecum: React.FC = () => {
     [formatPair, parseOrder]
   );
 
-  const groupedCodes = React.useMemo<VadeMecumGroup[]>(() => {
+  const groupEntries = React.useCallback((entries: VadeMecumCode[]) => {
     const map = new Map<string, VadeMecumGroup>();
-    codes.forEach((code) => {
+    entries.forEach((code) => {
       const tipo = code.tipo?.trim() || "Outros";
       const codigo = code.nomecodigo?.trim() || code.id;
       const key = `${tipo}::${codigo}`;
@@ -741,18 +832,39 @@ const VadeMecum: React.FC = () => {
     return Array.from(map.values()).sort((a, b) =>
       (a.label || "").localeCompare(b.label || "", "pt-BR")
     );
-  }, [codes]);
+  }, []);
+
+  const groupedCodes = React.useMemo(
+    () => groupEntries(codes),
+    [codes, groupEntries]
+  );
+  const groupedLaws = React.useMemo(
+    () => groupEntries(laws),
+    [groupEntries, laws]
+  );
+  const groupedOab = React.useMemo(
+    () => groupEntries(oabRecords),
+    [groupEntries, oabRecords]
+  );
 
   React.useEffect(() => {
-    if (selectedGroupKey && !groupedCodes.some((group) => group.key === selectedGroupKey)) {
+    if (!selectedGroupKey) return;
+    const source =
+      selectedSource === "laws"
+        ? groupedLaws
+        : selectedSource === "oab"
+          ? groupedOab
+          : groupedCodes;
+    if (!source.some((group) => group.key === selectedGroupKey)) {
       setSelectedGroupKey(null);
       setSelectedGroup(null);
       setSelectedGroupCodes([]);
+      setSelectedSource("codes");
     }
-  }, [groupedCodes, selectedGroupKey]);
+  }, [groupedCodes, groupedLaws, groupedOab, selectedGroupKey, selectedSource]);
 
-  const groupsByTipo = React.useMemo(() => {
-    const buckets = groupedCodes.reduce<Record<string, VadeMecumGroup[]>>(
+  const organizeByTipo = React.useCallback((collection: VadeMecumGroup[]) => {
+    const buckets = collection.reduce<Record<string, VadeMecumGroup[]>>(
       (accumulator, group) => {
         const tipo = group.tipo?.trim() || "Outros";
         if (!accumulator[tipo]) accumulator[tipo] = [];
@@ -770,32 +882,73 @@ const VadeMecum: React.FC = () => {
         ),
       }))
       .sort((a, b) => a.tipo.localeCompare(b.tipo, "pt-BR"));
-  }, [groupedCodes]);
+  }, []);
 
+  const groupsByTipoCodes = React.useMemo(
+    () => organizeByTipo(groupedCodes),
+    [groupedCodes, organizeByTipo]
+  );
+  const groupsByTipoLaws = React.useMemo(
+    () => organizeByTipo(groupedLaws),
+    [groupedLaws, organizeByTipo]
+  );
+  const groupsByTipoOab = React.useMemo(
+    () => organizeByTipo(groupedOab),
+    [groupedOab, organizeByTipo]
+  );
+
+  const currentListLoading =
+    activeTab === "laws" ? lawsLoading : activeTab === "oab" ? oabLoading : loading;
+  const currentListError =
+    activeTab === "laws" ? lawsError : activeTab === "oab" ? oabError : error;
+  const currentGroupsByTipo =
+    activeTab === "laws"
+      ? groupsByTipoLaws
+      : activeTab === "oab"
+        ? groupsByTipoOab
+        : groupsByTipoCodes;
   const visibleGroupsByTipo = React.useMemo(() => {
-    if (activeTab === "codes") return groupsByTipo;
-    return groupsByTipo.filter(({ tipo }) => tabMatchesTipo(activeTab, tipo));
-  }, [activeTab, groupsByTipo, tabMatchesTipo]);
+    if (activeTab === "codes" || activeTab === "laws" || activeTab === "oab")
+      return currentGroupsByTipo;
+    return currentGroupsByTipo.filter(({ tipo }) => tabMatchesTipo(activeTab, tipo));
+  }, [activeTab, currentGroupsByTipo, tabMatchesTipo]);
 
   React.useEffect(() => {
     if (loading) return;
-    if (activeTab === "codes") return;
-    const hasMatches = groupsByTipo.some(({ tipo }) => tabMatchesTipo(activeTab, tipo));
+    if (activeTab === "codes" || activeTab === "laws" || activeTab === "oab") return;
+    const hasMatches = groupsByTipoCodes.some(({ tipo }) =>
+      tabMatchesTipo(activeTab, tipo)
+    );
     if (hasMatches) return;
 
     const firstAvailable = tabs.find((tab) =>
-      groupsByTipo.some(({ tipo }) => tabMatchesTipo(tab.id, tipo))
+      groupsByTipoCodes.some(({ tipo }) => tabMatchesTipo(tab.id, tipo))
     );
     if (firstAvailable) setActiveTab(firstAvailable.id);
-  }, [activeTab, groupsByTipo, loading, tabMatchesTipo, tabs]);
+  }, [activeTab, groupsByTipoCodes, loading, tabMatchesTipo, tabs]);
 
   const openGroup = (groupKey: string) => {
-    const group = groupedCodes.find((entry) => entry.key === groupKey) || null;
+    const sourceGroups =
+      activeTab === "laws"
+        ? groupedLaws
+        : activeTab === "oab"
+          ? groupedOab
+          : groupedCodes;
+    const sourceUrl =
+      activeTab === "laws"
+        ? VADE_LAWS_URL
+        : activeTab === "oab"
+          ? VADE_OAB_URL
+          : VADE_API_URL;
+    const group = sourceGroups.find((entry) => entry.key === groupKey) || null;
     if (!group) return;
 
     setSelectedGroupKey(group.key);
     setSelectedGroup(group);
     setSelectedGroupCodes(group.codes);
+    setSelectedSource(
+      activeTab === "laws" ? "laws" : activeTab === "oab" ? "oab" : "codes"
+    );
     setArticleQuery("");
     if (isMobile) {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -817,7 +970,7 @@ const VadeMecum: React.FC = () => {
             : null;
         if (token) headers.Authorization = `Bearer ${token}`;
 
-        const url = `${VADE_API_URL}?nomecodigo=${encodeURIComponent(nomecodigo)}`;
+        const url = `${sourceUrl}?nomecodigo=${encodeURIComponent(nomecodigo)}`;
         let response = await fetch(url, { headers });
         if ((response.status === 401 || response.status === 403) && token) {
           response = await fetch(url, { headers: { Accept: "application/json" } });
@@ -852,6 +1005,7 @@ const VadeMecum: React.FC = () => {
     setSelectedGroupCodes([]);
     setSelectedError(null);
     setArticleQuery("");
+    setSelectedSource("codes");
   };
 
   const handleArticleSelect = React.useCallback(
@@ -943,6 +1097,13 @@ const VadeMecum: React.FC = () => {
       .filter((group) => group.items.length > 0);
   }, [articleNavGroups, articleQuery]);
 
+  const baseGrouped =
+    activeTab === "laws"
+      ? groupedLaws
+      : activeTab === "oab"
+        ? groupedOab
+        : groupedCodes;
+
   return (
     <VadeMecumContainer>
       <Header>
@@ -953,7 +1114,7 @@ const VadeMecum: React.FC = () => {
         </p>
       </Header>
 
-      {error && <ErrorMessage>{error}</ErrorMessage>}
+      {currentListError && <ErrorMessage>{currentListError}</ErrorMessage>}
 
       {!selectedGroupKey && (
         <>
@@ -973,7 +1134,7 @@ const VadeMecum: React.FC = () => {
               </Tab>
             ))}
           </TabsContainer>
-          {loading ? (
+          {currentListLoading ? (
             <ItemList singleColumn={activeTab === "codes"}>
               {Array.from({ length: 4 }).map((_, index) => (
                 <Card
@@ -982,7 +1143,7 @@ const VadeMecum: React.FC = () => {
                 />
               ))}
             </ItemList>
-          ) : groupedCodes.length === 0 ? (
+          ) : baseGrouped.length === 0 ? (
             <EmptyState>
               <h3>Nenhum codigo encontrado</h3>
               <p>Ajuste os filtros ou tente novamente mais tarde.</p>
@@ -1057,20 +1218,43 @@ const VadeMecum: React.FC = () => {
                   )}
                   {(() => {
                     const card = buildCardSections(selectedGroup, selectedGroupCodes);
+                    const isLawDetail = selectedSource === "laws";
                     return (
                       <div style={{ marginTop: 20, display: "grid", gap: 16 }}>
-                        {card.sections.map((section) => (
+                        {card.sections.map((section, index) => (
                           <div key={section.key}>
-                            {section.parteLine && (
-                              <p>
-                                <span className="article-part-label">
-                                  {section.parteLine}
-                                </span>
-                              </p>
+                            {isLawDetail ? (
+                              <>
+                                {index === 0 && selectedGroup.label && (
+                                  <p
+                                    style={{
+                                      fontWeight: 700,
+                                      fontSize: 15,
+                                      marginBottom: 24,
+                                    }}
+                                  >
+                                    {selectedGroup.label}
+                                  </p>
+                                )}
+                                {section.tituloLine && (
+                                  <p style={{ marginBottom: 12 }}>{section.tituloLine}</p>
+                                )}
+                                <p style={{ marginBottom: 12, fontWeight: 600 }}>Artigos</p>
+                              </>
+                            ) : (
+                              <>
+                                {section.parteLine && (
+                                  <p>
+                                    <span className="article-part-label">
+                                      {section.parteLine}
+                                    </span>
+                                  </p>
+                                )}
+                                <p>{section.livroLine}</p>
+                                <p>{section.tituloLine}</p>
+                                <p>{section.capituloLine}</p>
+                              </>
                             )}
-                            <p>{section.livroLine}</p>
-                            <p>{section.tituloLine}</p>
-                            <p>{section.capituloLine}</p>
                             <div style={{ display: "grid", gap: 8 }}>
                               {section.items.map((item, index) => {
                                 const orderPrefix = item.orderLabel ? `${item.orderLabel}. ` : "";
@@ -1203,7 +1387,10 @@ const normalizeRecord = (item: unknown, index: number): VadeMecumCode => {
     subsecao: getString(record, "subsecao"),
     subsecaotexto: getString(record, "subsecaotexto"),
     num_artigo: getString(record, "num_artigo"),
-    normativo: getFirstString(record, ["Normativo", "normativo"]),
+    normativo: getFirstString(
+      record,
+      ["Normativo", "normativo", "Artigos", "artigos", "texto", "Texto"]
+    ),
     ordem: getFirstString(record, ["Ordem", "ordem"]),
     updatedAt: getFirstString(record, [
       "updated_at",
