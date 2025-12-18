@@ -41,6 +41,9 @@ type VadeMecumCode = {
   num_artigo: string;
   normativo: string;
   ordem: string;
+  ramotexto?: string;
+  assuntotexto?: string;
+  enunciado?: string;
   updatedAt?: string;
   createdAt?: string;
 };
@@ -73,6 +76,7 @@ const TOKEN_KEY = "pantheon:token";
 const VADE_API_URL = buildApiUrl("/vade-mecum/codigos");
 const VADE_LAWS_URL = buildApiUrl("/vade-mecum/leis");
 const VADE_OAB_URL = buildApiUrl("/vade-mecum/oab");
+const VADE_JURIS_URL = buildApiUrl("/vade-mecum/jurisprudencia");
 
 const VadeMecumContainer = styled.div`
   padding: 24px;
@@ -519,12 +523,16 @@ const VadeMecum: React.FC = () => {
   const [oabLoading, setOabLoading] = React.useState(false);
   const [oabError, setOabError] = React.useState<string | null>(null);
   const [hasLoadedOab, setHasLoadedOab] = React.useState(false);
+  const [jurisRecords, setJurisRecords] = React.useState<VadeMecumCode[]>([]);
+  const [jurisLoading, setJurisLoading] = React.useState(false);
+  const [jurisError, setJurisError] = React.useState<string | null>(null);
+  const [hasLoadedJuris, setHasLoadedJuris] = React.useState(false);
   const [selectedGroupKey, setSelectedGroupKey] = React.useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = React.useState<VadeMecumGroup | null>(null);
   const [selectedGroupCodes, setSelectedGroupCodes] = React.useState<VadeMecumCode[]>([]);
-  const [selectedSource, setSelectedSource] = React.useState<"codes" | "laws" | "oab">(
-    "codes"
-  );
+  const [selectedSource, setSelectedSource] = React.useState<
+    "codes" | "laws" | "oab" | "jurisprudence"
+  >("codes");
   const [selectedLoading, setSelectedLoading] = React.useState(false);
   const [selectedError, setSelectedError] = React.useState<string | null>(null);
   const [articleQuery, setArticleQuery] = React.useState("");
@@ -639,6 +647,38 @@ const VadeMecum: React.FC = () => {
     void loadOab();
   }, [activeTab, hasLoadedOab, loadOab, oabLoading]);
 
+  const loadJuris = React.useCallback(async () => {
+    setJurisLoading(true);
+    setJurisError(null);
+    try {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token =
+        typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(VADE_JURIS_URL, { headers });
+      if (!response.ok) {
+        throw new Error(`Falha ao carregar jurisprudência (${response.status})`);
+      }
+      const payload = await response.json();
+      setJurisRecords(normalizeCollection(payload));
+      setHasLoadedJuris(true);
+    } catch (requestError) {
+      setJurisError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Erro ao carregar jurisprudência."
+      );
+    } finally {
+      setJurisLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (activeTab !== "jurisprudence") return;
+    if (hasLoadedJuris || jurisLoading) return;
+    void loadJuris();
+  }, [activeTab, hasLoadedJuris, jurisLoading, loadJuris]);
+
   const parseOrder = React.useCallback((value: string) => {
     const trimmed = value?.trim();
     if (!trimmed) return null;
@@ -690,6 +730,23 @@ const VadeMecum: React.FC = () => {
       .toLowerCase()
       .trim();
   }, []);
+
+  const hiddenDescriptions = React.useMemo(() => {
+    return new Set(
+      ["Ordenado por numero"].map((text) => normalizeText(text))
+    );
+  }, [normalizeText]);
+
+  const sanitizeGroupDescription = React.useCallback(
+    (text: string | undefined | null) => {
+      const value = text?.trim() ?? "";
+      if (!value) return "";
+      const normalized = normalizeText(value);
+      if (hiddenDescriptions.has(normalized)) return "";
+      return value;
+    },
+    [hiddenDescriptions, normalizeText]
+  );
 
   const tabMatchesTipo = React.useCallback(
     (tabId: (typeof tabs)[number]["id"], tipo: string) => {
@@ -809,30 +866,43 @@ const VadeMecum: React.FC = () => {
     [formatPair, parseOrder]
   );
 
-  const groupEntries = React.useCallback((entries: VadeMecumCode[]) => {
-    const map = new Map<string, VadeMecumGroup>();
-    entries.forEach((code) => {
-      const tipo = code.tipo?.trim() || "Outros";
-      const codigo = code.nomecodigo?.trim() || code.id;
-      const key = `${tipo}::${codigo}`;
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          tipo,
-          label: code.nomecodigo || `Codigo ${codigo}`,
-          description: code.cabecalho || "",
-          codes: [code],
-          createdAt: code.createdAt,
-          updatedAt: code.updatedAt,
-        });
-      } else {
-        map.get(key)!.codes.push(code);
-      }
-    });
-    return Array.from(map.values()).sort((a, b) =>
-      (a.label || "").localeCompare(b.label || "", "pt-BR")
-    );
-  }, []);
+  const groupEntries = React.useCallback(
+    (
+      entries: VadeMecumCode[],
+      options?: { groupByCabecalho?: boolean }
+    ) => {
+      const map = new Map<string, VadeMecumGroup>();
+      entries.forEach((code) => {
+        const tipo = code.tipo?.trim() || "Outros";
+        const cabecalho = code.cabecalho?.trim() || "";
+        const codigo = code.nomecodigo?.trim() || code.id;
+        const key = options?.groupByCabecalho
+          ? `${tipo}::${cabecalho || codigo}`
+          : `${tipo}::${codigo}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            tipo,
+            label: options?.groupByCabecalho
+              ? cabecalho || code.nomecodigo || `Registro ${codigo}`
+              : code.nomecodigo || `Codigo ${codigo}`,
+            description: options?.groupByCabecalho
+              ? code.nomecodigo || cabecalho || ""
+              : code.cabecalho || "",
+            codes: [code],
+            createdAt: code.createdAt,
+            updatedAt: code.updatedAt,
+          });
+        } else {
+          map.get(key)!.codes.push(code);
+        }
+      });
+      return Array.from(map.values()).sort((a, b) =>
+        (a.label || "").localeCompare(b.label || "", "pt-BR")
+      );
+    },
+    []
+  );
 
   const groupedCodes = React.useMemo(
     () => groupEntries(codes),
@@ -846,6 +916,10 @@ const VadeMecum: React.FC = () => {
     () => groupEntries(oabRecords),
     [groupEntries, oabRecords]
   );
+  const groupedJuris = React.useMemo(
+    () => groupEntries(jurisRecords, { groupByCabecalho: true }),
+    [groupEntries, jurisRecords]
+  );
 
   React.useEffect(() => {
     if (!selectedGroupKey) return;
@@ -854,14 +928,23 @@ const VadeMecum: React.FC = () => {
         ? groupedLaws
         : selectedSource === "oab"
           ? groupedOab
-          : groupedCodes;
+          : selectedSource === "jurisprudence"
+            ? groupedJuris
+            : groupedCodes;
     if (!source.some((group) => group.key === selectedGroupKey)) {
       setSelectedGroupKey(null);
       setSelectedGroup(null);
       setSelectedGroupCodes([]);
       setSelectedSource("codes");
     }
-  }, [groupedCodes, groupedLaws, groupedOab, selectedGroupKey, selectedSource]);
+  }, [
+    groupedCodes,
+    groupedJuris,
+    groupedLaws,
+    groupedOab,
+    selectedGroupKey,
+    selectedSource,
+  ]);
 
   const organizeByTipo = React.useCallback((collection: VadeMecumGroup[]) => {
     const buckets = collection.reduce<Record<string, VadeMecumGroup[]>>(
@@ -896,20 +979,44 @@ const VadeMecum: React.FC = () => {
     () => organizeByTipo(groupedOab),
     [groupedOab, organizeByTipo]
   );
+  const groupsByTipoJuris = React.useMemo(
+    () => organizeByTipo(groupedJuris),
+    [groupedJuris, organizeByTipo]
+  );
 
   const currentListLoading =
-    activeTab === "laws" ? lawsLoading : activeTab === "oab" ? oabLoading : loading;
+    activeTab === "laws"
+      ? lawsLoading
+      : activeTab === "oab"
+        ? oabLoading
+        : activeTab === "jurisprudence"
+          ? jurisLoading
+          : loading;
   const currentListError =
-    activeTab === "laws" ? lawsError : activeTab === "oab" ? oabError : error;
+    activeTab === "laws"
+      ? lawsError
+      : activeTab === "oab"
+        ? oabError
+        : activeTab === "jurisprudence"
+          ? jurisError
+          : error;
   const currentGroupsByTipo =
     activeTab === "laws"
       ? groupsByTipoLaws
       : activeTab === "oab"
         ? groupsByTipoOab
-        : groupsByTipoCodes;
+        : activeTab === "jurisprudence"
+          ? groupsByTipoJuris
+          : groupsByTipoCodes;
   const visibleGroupsByTipo = React.useMemo(() => {
-    if (activeTab === "codes" || activeTab === "laws" || activeTab === "oab")
+    if (
+      activeTab === "codes" ||
+      activeTab === "laws" ||
+      activeTab === "oab" ||
+      activeTab === "jurisprudence"
+    ) {
       return currentGroupsByTipo;
+    }
     return currentGroupsByTipo.filter(({ tipo }) => tabMatchesTipo(activeTab, tipo));
   }, [activeTab, currentGroupsByTipo, tabMatchesTipo]);
 
@@ -933,13 +1040,17 @@ const VadeMecum: React.FC = () => {
         ? groupedLaws
         : activeTab === "oab"
           ? groupedOab
-          : groupedCodes;
+          : activeTab === "jurisprudence"
+            ? groupedJuris
+            : groupedCodes;
     const sourceUrl =
       activeTab === "laws"
         ? VADE_LAWS_URL
         : activeTab === "oab"
           ? VADE_OAB_URL
-          : VADE_API_URL;
+          : activeTab === "jurisprudence"
+            ? VADE_JURIS_URL
+            : VADE_API_URL;
     const group = sourceGroups.find((entry) => entry.key === groupKey) || null;
     if (!group) return;
 
@@ -947,7 +1058,13 @@ const VadeMecum: React.FC = () => {
     setSelectedGroup(group);
     setSelectedGroupCodes(group.codes);
     setSelectedSource(
-      activeTab === "laws" ? "laws" : activeTab === "oab" ? "oab" : "codes"
+      activeTab === "laws"
+        ? "laws"
+        : activeTab === "oab"
+          ? "oab"
+          : activeTab === "jurisprudence"
+            ? "jurisprudence"
+            : "codes"
     );
     setArticleQuery("");
     if (isMobile) {
@@ -1102,7 +1219,9 @@ const VadeMecum: React.FC = () => {
       ? groupedLaws
       : activeTab === "oab"
         ? groupedOab
-        : groupedCodes;
+        : activeTab === "jurisprudence"
+          ? groupedJuris
+          : groupedCodes;
 
   return (
     <VadeMecumContainer>
@@ -1135,7 +1254,7 @@ const VadeMecum: React.FC = () => {
             ))}
           </TabsContainer>
           {currentListLoading ? (
-            <ItemList singleColumn={activeTab === "codes"}>
+            <ItemList singleColumn={activeTab === "codes" || activeTab === "jurisprudence"}>
               {Array.from({ length: 4 }).map((_, index) => (
                 <Card
                   key={index}
@@ -1158,13 +1277,20 @@ const VadeMecum: React.FC = () => {
               {visibleGroupsByTipo.map(({ tipo, groups }) => (
                 <GroupSection key={tipo}>
                   <GroupTitle>{tipo}</GroupTitle>
-                  <ItemList singleColumn={activeTab === "codes"}>
-                    {groups.map((group) => (
-                      <ItemCard key={group.key} onClick={() => openGroup(group.key)}>
-                        <h3>{group.label}</h3>
-                        <p>{group.description || "Sem descricao cadastrada."}</p>
-                      </ItemCard>
-                    ))}
+                  <ItemList singleColumn={activeTab === "codes" || activeTab === "jurisprudence"}>
+                    {groups.map((group) => {
+                      const description = sanitizeGroupDescription(group.description);
+                      return (
+                        <ItemCard key={group.key} onClick={() => openGroup(group.key)}>
+                          <h3>{group.label}</h3>
+                          {description ? (
+                            <p>{description}</p>
+                          ) : !group.description ? (
+                            <p>Sem descricao cadastrada.</p>
+                          ) : null}
+                        </ItemCard>
+                      );
+                    })}
                   </ItemList>
                 </GroupSection>
               ))}
@@ -1202,10 +1328,14 @@ const VadeMecum: React.FC = () => {
 
               <ArticleContent>
                 <Card style={{ padding: 24 }}>
-                  <h2 style={{ marginBottom: 8 }}>{selectedGroup.label}</h2>
-                  <p style={{ color: "var(--text-secondary)" }}>
-                    {selectedGroup.description || "Sem cabecalho cadastrado."}
-                  </p>
+                  {selectedSource !== "jurisprudence" && (
+                    <>
+                      <h2 style={{ marginBottom: 8 }}>{selectedGroup.label}</h2>
+                      <p style={{ color: "var(--text-secondary)" }}>
+                        {selectedGroup.description || "Sem cabecalho cadastrado."}
+                      </p>
+                    </>
+                  )}
                   {selectedError && (
                     <p style={{ marginTop: 12, color: "#dc2626", fontWeight: 600 }}>
                       {selectedError}
@@ -1219,6 +1349,118 @@ const VadeMecum: React.FC = () => {
                   {(() => {
                     const card = buildCardSections(selectedGroup, selectedGroupCodes);
                     const isLawDetail = selectedSource === "laws";
+                    const isJurisDetail = selectedSource === "jurisprudence";
+                    const primaryRecord = selectedGroupCodes[0];
+                    const trim = (value?: string | null) =>
+                      value && typeof value === "string" ? value.trim() : "";
+                    const cabecalhoValue =
+                      trim(primaryRecord?.cabecalho) || selectedGroup.label || "";
+                    if (isJurisDetail) {
+                      const sortedRecords = [...selectedGroupCodes].sort((a, b) => {
+                        const aOrder = parseOrder(a.ordem);
+                        const bOrder = parseOrder(b.ordem);
+                        if (aOrder === null && bOrder === null) return 0;
+                        if (aOrder === null) return 1;
+                        if (bOrder === null) return -1;
+                        return aOrder - bOrder;
+                      });
+
+                      const normalizeValue = (value: string | undefined | null) => {
+                        const trimmed = trim(value);
+                        if (!trimmed) return "";
+                        const normalized = normalizeText(trimmed);
+                        const isBlocked =
+                          normalized === "ordenado por numero" ||
+                          normalized === "ordenado por numero.";
+                        if (isBlocked) return "";
+                        return trimmed;
+                      };
+
+                      const fallbackType = normalizeValue(
+                        sortedRecords.find((record) => normalizeValue(record.tipo))?.tipo
+                      );
+                      const fallbackRamo = normalizeValue(
+                        sortedRecords.find((record) => normalizeValue(record.ramotexto))?.ramotexto
+                      );
+                      const fallbackAssunto = normalizeValue(
+                        sortedRecords.find((record) => normalizeValue(record.assuntotexto))
+                          ?.assuntotexto
+                      );
+                      return (
+                        <div style={{ marginTop: 20, display: "grid", gap: 16 }}>
+                          {cabecalhoValue && (
+                            <p
+                              style={{
+                                fontWeight: 700,
+                                fontSize: 16,
+                                marginBottom: 16,
+                              }}
+                            >
+                              {cabecalhoValue}
+                            </p>
+                          )}
+                          <div style={{ display: "grid", gap: 16 }}>
+                            {sortedRecords.map((record, index) => {
+                              const typeValue = normalizeValue(record.tipo) || fallbackType;
+                              const ramoValue = normalizeValue(record.ramotexto) || fallbackRamo;
+                              const assuntoValue =
+                                normalizeValue(record.assuntotexto) || fallbackAssunto;
+                              const recordEnunciado =
+                                trim(record.enunciado) ||
+                                trim(record.normativo) ||
+                                "Sem enunciado cadastrado.";
+
+                              return (
+                                <div
+                                  key={`${record.id || record.nomecodigo || index}`}
+                                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                                >
+                                  {typeValue && (
+                                    <p
+                                      style={{
+                                        fontWeight: 700,
+                                        fontSize: 12,
+                                      }}
+                                    >
+                                      {typeValue}
+                                    </p>
+                                  )}
+                                  {ramoValue && (
+                                    <p
+                                      style={{
+                                        fontWeight: 700,
+                                        fontSize: 15,
+                                      }}
+                                    >
+                                      {ramoValue}
+                                    </p>
+                                  )}
+                                  {assuntoValue && (
+                                    <p
+                                      style={{
+                                        fontWeight: 700,
+                                        fontSize: 15,
+                                      }}
+                                    >
+                                      {assuntoValue}
+                                    </p>
+                                  )}
+                                  <p
+                                    style={{
+                                      whiteSpace: "pre-wrap",
+                                      marginBottom: 0,
+                                    }}
+                                  >
+                                    {recordEnunciado}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div style={{ marginTop: 20, display: "grid", gap: 16 }}>
                         {card.sections.map((section, index) => (
@@ -1360,7 +1602,7 @@ const normalizeRecord = (item: unknown, index: number): VadeMecumCode => {
   const record: UnknownRecord = isRecord(item) ? item : {};
   return {
     id: getFirstString(record, ["id", "uuid"], String(index)),
-    tipo: getFirstString(record, ["tipo", "Tipo"]),
+    tipo: getFirstString(record, ["Tipo", "tipo", "tipoTexto", "tipo_texto"]),
     nomecodigo: getFirstString(
       record,
       ["nomecodigo", "titulo"],
@@ -1389,9 +1631,34 @@ const normalizeRecord = (item: unknown, index: number): VadeMecumCode => {
     num_artigo: getString(record, "num_artigo"),
     normativo: getFirstString(
       record,
-      ["Normativo", "normativo", "Artigos", "artigos", "texto", "Texto"]
+      [
+        "Normativo",
+        "normativo",
+        "Artigos",
+        "artigos",
+        "texto",
+        "Texto",
+        "Enunciado",
+        "enunciado",
+      ]
     ),
     ordem: getFirstString(record, ["Ordem", "ordem"]),
+    ramotexto: getFirstString(record, [
+      "ramotexto",
+      "ramotextom",
+      "ramo",
+      "ramo_texto",
+      "ramoTexto",
+      "RamoTexto",
+    ]),
+    assuntotexto: getFirstString(record, [
+      "assuntotexto",
+      "assunto",
+      "assuntoTexto",
+      "AssuntoTexto",
+      "assunto_texto",
+    ]),
+    enunciado: getFirstString(record, ["enunciado", "Enunciado"]),
     updatedAt: getFirstString(record, [
       "updated_at",
       "updatedAt",
