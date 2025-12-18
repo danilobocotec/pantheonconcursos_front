@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import styled from 'styled-components';
 import { 
   BookOpen, 
@@ -55,6 +55,45 @@ const Header = styled.div`
   @media (max-width: 768px) {
     margin-bottom: 24px;
   }
+`;
+
+const UserBar = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: 12px;
+  background: ${props => props.theme.colors.surface};
+`;
+
+const UserAvatar = styled.div`
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: ${props => props.theme.colors.accent};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+`;
+
+const UserInfo = styled.div`
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+`;
+
+const UserNameText = styled.span`
+  font-weight: 700;
+  color: ${props => props.theme.colors.text};
+`;
+
+const UserEmail = styled.span`
+  font-size: 0.9rem;
+  color: ${props => props.theme.colors.textSecondary};
 `;
 
 const ContentWrapper = styled.div`
@@ -181,6 +220,21 @@ const CardFooter = styled.div`
 `;
 
 const VisaoGeral: React.FC = () => {
+  const [userName, setUserName] = React.useState('Usuário');
+  const [userEmail, setUserEmail] = React.useState('');
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedName =
+        window.localStorage.getItem('pantheon:fullName') ||
+        window.localStorage.getItem('pantheon:lastEmail') ||
+        'Usuário';
+      const storedEmail = window.localStorage.getItem('pantheon:lastEmail') || '';
+      setUserName(storedName);
+      setUserEmail(storedEmail);
+    }
+  }, []);
+
   const features = [
     {
       id: 'meus-cursos',
@@ -221,6 +275,13 @@ const VisaoGeral: React.FC = () => {
 
   return (
     <DashboardContainer>
+      <UserBar>
+        <UserAvatar>{userName.charAt(0).toUpperCase()}</UserAvatar>
+        <UserInfo>
+          <UserNameText>{userName}</UserNameText>
+          {userEmail && <UserEmail>{userEmail}</UserEmail>}
+        </UserInfo>
+      </UserBar>
       <Header>
         <h1>Visão Geral</h1>
         <p>Bem-vindo ao seu painel de estudos. Acesse rapidamente suas ferramentas de aprendizado.</p>
