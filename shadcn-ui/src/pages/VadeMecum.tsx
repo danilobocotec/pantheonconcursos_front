@@ -16,6 +16,7 @@ import { media, Card } from "../styles/GlobalStyles";
 
 type VadeMecumCode = {
   id: string;
+  idcodigo?: string;
   tipo: string;
   nomecodigo: string;
   cabecalho: string;
@@ -77,6 +78,10 @@ const VADE_API_URL = buildApiUrl("/vade-mecum/codigos");
 const VADE_LAWS_URL = buildApiUrl("/vade-mecum/leis");
 const VADE_OAB_URL = buildApiUrl("/vade-mecum/oab");
 const VADE_JURIS_URL = buildApiUrl("/vade-mecum/jurisprudencia");
+const VADE_STATUTES_URL = buildApiUrl("/vade-mecum/estatutos/gruposervico");
+const VADE_STATUTES_DETAIL_URL = buildApiUrl("/vade-mecum/estatutos");
+const VADE_CONSTITUTION_URL = buildApiUrl("/vade-mecum/constituicao/gruposervico");
+const VADE_CONSTITUTION_DETAIL_URL = buildApiUrl("/vade-mecum/constituicao");
 
 const VadeMecumContainer = styled.div`
   padding: 24px;
@@ -527,11 +532,21 @@ const VadeMecum: React.FC = () => {
   const [jurisLoading, setJurisLoading] = React.useState(false);
   const [jurisError, setJurisError] = React.useState<string | null>(null);
   const [hasLoadedJuris, setHasLoadedJuris] = React.useState(false);
+  const [constitutionRecords, setConstitutionRecords] = React.useState<VadeMecumCode[]>(
+    []
+  );
+  const [constitutionLoading, setConstitutionLoading] = React.useState(false);
+  const [constitutionError, setConstitutionError] = React.useState<string | null>(null);
+  const [hasLoadedConstitution, setHasLoadedConstitution] = React.useState(false);
+  const [statuteRecords, setStatuteRecords] = React.useState<VadeMecumCode[]>([]);
+  const [statutesLoading, setStatutesLoading] = React.useState(false);
+  const [statutesError, setStatutesError] = React.useState<string | null>(null);
+  const [hasLoadedStatutes, setHasLoadedStatutes] = React.useState(false);
   const [selectedGroupKey, setSelectedGroupKey] = React.useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = React.useState<VadeMecumGroup | null>(null);
   const [selectedGroupCodes, setSelectedGroupCodes] = React.useState<VadeMecumCode[]>([]);
   const [selectedSource, setSelectedSource] = React.useState<
-    "codes" | "laws" | "oab" | "jurisprudence"
+    "codes" | "laws" | "oab" | "jurisprudence" | "statutes" | "constitution"
   >("codes");
   const [selectedLoading, setSelectedLoading] = React.useState(false);
   const [selectedError, setSelectedError] = React.useState<string | null>(null);
@@ -678,6 +693,70 @@ const VadeMecum: React.FC = () => {
     if (hasLoadedJuris || jurisLoading) return;
     void loadJuris();
   }, [activeTab, hasLoadedJuris, jurisLoading, loadJuris]);
+
+  const loadConstitution = React.useCallback(async () => {
+    setConstitutionLoading(true);
+    setConstitutionError(null);
+    try {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token =
+        typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(VADE_CONSTITUTION_URL, { headers });
+      if (!response.ok) {
+        throw new Error(`Falha ao carregar constituicao (${response.status})`);
+      }
+      const payload = await response.json();
+      setConstitutionRecords(normalizeCollection(payload));
+      setHasLoadedConstitution(true);
+    } catch (requestError) {
+      setConstitutionError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Erro ao carregar constituicao."
+      );
+    } finally {
+      setConstitutionLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (activeTab !== "constitution") return;
+    if (hasLoadedConstitution || constitutionLoading) return;
+    void loadConstitution();
+  }, [activeTab, constitutionLoading, hasLoadedConstitution, loadConstitution]);
+
+  const loadStatutes = React.useCallback(async () => {
+    setStatutesLoading(true);
+    setStatutesError(null);
+    try {
+      const headers: Record<string, string> = { Accept: "application/json" };
+      const token =
+        typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(VADE_STATUTES_URL, { headers });
+      if (!response.ok) {
+        throw new Error(`Falha ao carregar estatutos (${response.status})`);
+      }
+      const payload = await response.json();
+      setStatuteRecords(normalizeCollection(payload));
+      setHasLoadedStatutes(true);
+    } catch (requestError) {
+      setStatutesError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Erro ao carregar estatutos."
+      );
+    } finally {
+      setStatutesLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (activeTab !== "statutes") return;
+    if (hasLoadedStatutes || statutesLoading) return;
+    void loadStatutes();
+  }, [activeTab, hasLoadedStatutes, loadStatutes, statutesLoading]);
 
   const parseOrder = React.useCallback((value: string) => {
     const trimmed = value?.trim();
@@ -920,6 +999,14 @@ const VadeMecum: React.FC = () => {
     () => groupEntries(jurisRecords, { groupByCabecalho: true }),
     [groupEntries, jurisRecords]
   );
+  const groupedConstitution = React.useMemo(
+    () => groupEntries(constitutionRecords),
+    [constitutionRecords, groupEntries]
+  );
+  const groupedStatutes = React.useMemo(
+    () => groupEntries(statuteRecords),
+    [groupEntries, statuteRecords]
+  );
 
   React.useEffect(() => {
     if (!selectedGroupKey) return;
@@ -930,7 +1017,11 @@ const VadeMecum: React.FC = () => {
           ? groupedOab
           : selectedSource === "jurisprudence"
             ? groupedJuris
-            : groupedCodes;
+            : selectedSource === "statutes"
+              ? groupedStatutes
+              : selectedSource === "constitution"
+                ? groupedConstitution
+                : groupedCodes;
     if (!source.some((group) => group.key === selectedGroupKey)) {
       setSelectedGroupKey(null);
       setSelectedGroup(null);
@@ -942,6 +1033,8 @@ const VadeMecum: React.FC = () => {
     groupedJuris,
     groupedLaws,
     groupedOab,
+    groupedConstitution,
+    groupedStatutes,
     selectedGroupKey,
     selectedSource,
   ]);
@@ -983,6 +1076,14 @@ const VadeMecum: React.FC = () => {
     () => organizeByTipo(groupedJuris),
     [groupedJuris, organizeByTipo]
   );
+  const groupsByTipoConstitution = React.useMemo(
+    () => organizeByTipo(groupedConstitution),
+    [groupedConstitution, organizeByTipo]
+  );
+  const groupsByTipoStatutes = React.useMemo(
+    () => organizeByTipo(groupedStatutes),
+    [groupedStatutes, organizeByTipo]
+  );
 
   const currentListLoading =
     activeTab === "laws"
@@ -991,7 +1092,11 @@ const VadeMecum: React.FC = () => {
         ? oabLoading
         : activeTab === "jurisprudence"
           ? jurisLoading
-          : loading;
+          : activeTab === "statutes"
+            ? statutesLoading
+            : activeTab === "constitution"
+              ? constitutionLoading
+              : loading;
   const currentListError =
     activeTab === "laws"
       ? lawsError
@@ -999,7 +1104,11 @@ const VadeMecum: React.FC = () => {
         ? oabError
         : activeTab === "jurisprudence"
           ? jurisError
-          : error;
+          : activeTab === "statutes"
+            ? statutesError
+            : activeTab === "constitution"
+              ? constitutionError
+              : error;
   const currentGroupsByTipo =
     activeTab === "laws"
       ? groupsByTipoLaws
@@ -1007,13 +1116,19 @@ const VadeMecum: React.FC = () => {
         ? groupsByTipoOab
         : activeTab === "jurisprudence"
           ? groupsByTipoJuris
-          : groupsByTipoCodes;
+          : activeTab === "statutes"
+            ? groupsByTipoStatutes
+            : activeTab === "constitution"
+              ? groupsByTipoConstitution
+              : groupsByTipoCodes;
   const visibleGroupsByTipo = React.useMemo(() => {
     if (
       activeTab === "codes" ||
       activeTab === "laws" ||
       activeTab === "oab" ||
-      activeTab === "jurisprudence"
+      activeTab === "jurisprudence" ||
+      activeTab === "statutes" ||
+      activeTab === "constitution"
     ) {
       return currentGroupsByTipo;
     }
@@ -1022,7 +1137,15 @@ const VadeMecum: React.FC = () => {
 
   React.useEffect(() => {
     if (loading) return;
-    if (activeTab === "codes" || activeTab === "laws" || activeTab === "oab") return;
+    if (
+      activeTab === "codes" ||
+      activeTab === "laws" ||
+      activeTab === "oab" ||
+      activeTab === "statutes" ||
+      activeTab === "constitution"
+    ) {
+      return;
+    }
     const hasMatches = groupsByTipoCodes.some(({ tipo }) =>
       tabMatchesTipo(activeTab, tipo)
     );
@@ -1042,7 +1165,11 @@ const VadeMecum: React.FC = () => {
           ? groupedOab
           : activeTab === "jurisprudence"
             ? groupedJuris
-            : groupedCodes;
+            : activeTab === "statutes"
+              ? groupedStatutes
+              : activeTab === "constitution"
+                ? groupedConstitution
+                : groupedCodes;
     const sourceUrl =
       activeTab === "laws"
         ? VADE_LAWS_URL
@@ -1050,7 +1177,11 @@ const VadeMecum: React.FC = () => {
           ? VADE_OAB_URL
           : activeTab === "jurisprudence"
             ? VADE_JURIS_URL
-            : VADE_API_URL;
+            : activeTab === "statutes"
+              ? VADE_STATUTES_DETAIL_URL
+              : activeTab === "constitution"
+                ? VADE_CONSTITUTION_DETAIL_URL
+                : VADE_API_URL;
     const group = sourceGroups.find((entry) => entry.key === groupKey) || null;
     if (!group) return;
 
@@ -1064,7 +1195,11 @@ const VadeMecum: React.FC = () => {
           ? "oab"
           : activeTab === "jurisprudence"
             ? "jurisprudence"
-            : "codes"
+            : activeTab === "statutes"
+              ? "statutes"
+              : activeTab === "constitution"
+                ? "constitution"
+                : "codes"
     );
     setArticleQuery("");
     if (isMobile) {
@@ -1074,6 +1209,19 @@ const VadeMecum: React.FC = () => {
     const nomecodigo =
       group.codes.find((code) => code.nomecodigo?.trim())?.nomecodigo ||
       group.label;
+    const isStatutesTab = activeTab === "statutes";
+    const isConstitutionTab = activeTab === "constitution";
+    const detailMatch = isStatutesTab || isConstitutionTab
+      ? {
+          idcodigo: group.codes.find((code) => code.idcodigo?.trim())?.idcodigo || "",
+          nomecodigo: nomecodigo || "",
+          titulo: group.codes.find((code) => code.titulo?.trim())?.titulo || "",
+          cabecalho:
+            group.codes.find((code) => code.cabecalho?.trim())?.cabecalho ||
+            group.description ||
+            "",
+        }
+      : null;
     if (!nomecodigo?.trim()) return;
 
     const fetchDetail = async () => {
@@ -1087,7 +1235,10 @@ const VadeMecum: React.FC = () => {
             : null;
         if (token) headers.Authorization = `Bearer ${token}`;
 
-        const url = `${sourceUrl}?nomecodigo=${encodeURIComponent(nomecodigo)}`;
+        const url =
+          isStatutesTab || isConstitutionTab
+            ? sourceUrl
+            : `${sourceUrl}?nomecodigo=${encodeURIComponent(nomecodigo)}`;
         let response = await fetch(url, { headers });
         if ((response.status === 401 || response.status === 403) && token) {
           response = await fetch(url, { headers: { Accept: "application/json" } });
@@ -1099,9 +1250,31 @@ const VadeMecum: React.FC = () => {
         const loaded = normalizeCollection(payload);
         const normalizedNomecodigo = normalizeText(nomecodigo);
         const matching = loaded.filter(
-          (code) => normalizeText(code.nomecodigo) === normalizedNomecodigo
+          (code) => normalizeText(code.nomecodigo ?? "") === normalizedNomecodigo
         );
-        if (matching.length > 0) setSelectedGroupCodes(matching);
+        if ((isStatutesTab || isConstitutionTab) && detailMatch) {
+          const targetId = detailMatch.idcodigo.trim();
+          const targetNome = normalizeText(detailMatch.nomecodigo);
+          const targetTitulo = normalizeText(detailMatch.titulo);
+          const targetCabecalho = normalizeText(detailMatch.cabecalho);
+          const statutesFiltered = loaded.filter((code) => {
+            if (targetId && code.idcodigo?.trim() === targetId) return true;
+            const codeNome = normalizeText(code.nomecodigo ?? "");
+            if (targetNome && codeNome === targetNome) return true;
+            const codeTitulo = normalizeText(code.titulo ?? "");
+            if (targetTitulo && codeTitulo === targetTitulo) return true;
+            const codeCabecalho = normalizeText(code.cabecalho ?? "");
+            if (targetCabecalho && codeCabecalho === targetCabecalho) return true;
+            return false;
+          });
+          if (statutesFiltered.length > 0) {
+            setSelectedGroupCodes(statutesFiltered);
+          } else {
+            setSelectedGroupCodes(loaded);
+          }
+        } else if (matching.length > 0) {
+          setSelectedGroupCodes(matching);
+        }
       } catch (detailError) {
         setSelectedError(
           detailError instanceof Error
@@ -1221,7 +1394,11 @@ const VadeMecum: React.FC = () => {
         ? groupedOab
         : activeTab === "jurisprudence"
           ? groupedJuris
-          : groupedCodes;
+          : activeTab === "statutes"
+            ? groupedStatutes
+            : activeTab === "constitution"
+              ? groupedConstitution
+              : groupedCodes;
 
   return (
     <VadeMecumContainer>
@@ -1254,7 +1431,14 @@ const VadeMecum: React.FC = () => {
             ))}
           </TabsContainer>
           {currentListLoading ? (
-            <ItemList singleColumn={activeTab === "codes" || activeTab === "jurisprudence"}>
+            <ItemList
+              singleColumn={
+                activeTab === "codes" ||
+                activeTab === "jurisprudence" ||
+                activeTab === "statutes" ||
+                activeTab === "constitution"
+              }
+            >
               {Array.from({ length: 4 }).map((_, index) => (
                 <Card
                   key={index}
@@ -1277,7 +1461,14 @@ const VadeMecum: React.FC = () => {
               {visibleGroupsByTipo.map(({ tipo, groups }) => (
                 <GroupSection key={tipo}>
                   <GroupTitle>{tipo}</GroupTitle>
-                  <ItemList singleColumn={activeTab === "codes" || activeTab === "jurisprudence"}>
+                  <ItemList
+                    singleColumn={
+                      activeTab === "codes" ||
+                      activeTab === "jurisprudence" ||
+                      activeTab === "statutes" ||
+                      activeTab === "constitution"
+                    }
+                  >
                     {groups.map((group) => {
                       const description = sanitizeGroupDescription(group.description);
                       return (
@@ -1328,7 +1519,8 @@ const VadeMecum: React.FC = () => {
 
               <ArticleContent>
                 <Card style={{ padding: 24 }}>
-                  {selectedSource !== "jurisprudence" && (
+                  {selectedSource !== "jurisprudence" &&
+                    selectedSource !== "statutes" && (
                     <>
                       <h2 style={{ marginBottom: 8 }}>{selectedGroup.label}</h2>
                       <p style={{ color: "var(--text-secondary)" }}>
@@ -1350,11 +1542,68 @@ const VadeMecum: React.FC = () => {
                     const card = buildCardSections(selectedGroup, selectedGroupCodes);
                     const isLawDetail = selectedSource === "laws";
                     const isJurisDetail = selectedSource === "jurisprudence";
+                    const isStatutesDetail = selectedSource === "statutes";
                     const primaryRecord = selectedGroupCodes[0];
                     const trim = (value?: string | null) =>
                       value && typeof value === "string" ? value.trim() : "";
                     const cabecalhoValue =
                       trim(primaryRecord?.cabecalho) || selectedGroup.label || "";
+                    const tituloValue = (() => {
+                      const titulo = trim(primaryRecord?.titulo);
+                      const tituloTexto = trim(primaryRecord?.titulotexto);
+                      if (titulo && tituloTexto) return `${titulo} - ${tituloTexto}`;
+                      return titulo || tituloTexto;
+                    })();
+                    if (isStatutesDetail) {
+                      const sortedRecords = [...selectedGroupCodes].sort((a, b) => {
+                        const aOrder = parseOrder(a.ordem);
+                        const bOrder = parseOrder(b.ordem);
+                        if (aOrder === null && bOrder === null) return 0;
+                        if (aOrder === null) return 1;
+                        if (bOrder === null) return -1;
+                        return aOrder - bOrder;
+                      });
+
+                      return (
+                        <div style={{ marginTop: 20, display: "grid", gap: 16 }}>
+                          {cabecalhoValue && (
+                            <p style={{ fontWeight: 700, fontSize: 16 }}>
+                              {cabecalhoValue}
+                            </p>
+                          )}
+                          {tituloValue && (
+                            <p style={{ fontWeight: 700, fontSize: 14 }}>
+                              {tituloValue}
+                            </p>
+                          )}
+                          <p style={{ fontWeight: 700, fontSize: 14 }}>Artigos</p>
+                          <div style={{ display: "grid", gap: 8 }}>
+                            {sortedRecords.map((record, index) => {
+                              const { before, art, after } = splitArticleHighlight(
+                                record.normativo
+                              );
+                              return (
+                                <p
+                                  key={`${record.id || record.nomecodigo || index}`}
+                                  id={`article-${record.id}`}
+                                  style={{
+                                    whiteSpace: "pre-wrap",
+                                    scrollMarginTop: 90,
+                                    borderRadius: 8,
+                                  }}
+                                >
+                                  {before}
+                                  {art ? (
+                                    <span className="article-label">{art}</span>
+                                  ) : null}
+                                  {after}
+                                </p>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    }
                     if (isJurisDetail) {
                       const sortedRecords = [...selectedGroupCodes].sort((a, b) => {
                         const aOrder = parseOrder(a.ordem);
@@ -1602,6 +1851,7 @@ const normalizeRecord = (item: unknown, index: number): VadeMecumCode => {
   const record: UnknownRecord = isRecord(item) ? item : {};
   return {
     id: getFirstString(record, ["id", "uuid"], String(index)),
+    idcodigo: getString(record, "idcodigo"),
     tipo: getFirstString(record, ["Tipo", "tipo", "tipoTexto", "tipo_texto"]),
     nomecodigo: getFirstString(
       record,
