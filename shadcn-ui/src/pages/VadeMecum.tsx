@@ -76,8 +76,11 @@ type ArticleNavGroup = {
 const TOKEN_KEY = "pantheon:token";
 const VADE_API_URL = buildApiUrl("/vade-mecum/codigos");
 const VADE_LAWS_URL = buildApiUrl("/vade-mecum/leis");
+const VADE_LAWS_GROUPED_URL = buildApiUrl("/vade-mecum/leis/gruposervico");
 const VADE_OAB_URL = buildApiUrl("/vade-mecum/oab");
+const VADE_OAB_CAPAS_URL = buildApiUrl("/vade-mecum/oab/capas");
 const VADE_JURIS_URL = buildApiUrl("/vade-mecum/jurisprudencia");
+const VADE_JURIS_GROUPED_URL = buildApiUrl("/vade-mecum/jurisprudencia/grouped");
 const VADE_STATUTES_URL = buildApiUrl("/vade-mecum/estatutos/gruposervico");
 const VADE_STATUTES_DETAIL_URL = buildApiUrl("/vade-mecum/estatutos");
 const VADE_CONSTITUTION_URL = buildApiUrl("/vade-mecum/constituicao/gruposervico");
@@ -298,6 +301,31 @@ const CloseNavButton = styled.button`
   }
 `;
 
+const BackToListButton = styled.button`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  background: ${(props) => props.theme.colors.surface};
+  color: ${(props) => props.theme.colors.text};
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+
+  &:hover {
+    background: ${(props) => `${props.theme.colors.accentSecondary}15`};
+    color: ${(props) => props.theme.colors.accentSecondary};
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px ${(props) => `${props.theme.colors.accentSecondary}55`};
+  }
+`;
+
 const SearchContainer = styled.div`
   display: flex;
   flex-direction: column;
@@ -484,6 +512,13 @@ const ArticleContent = styled.div`
       color: ${(props) => props.theme.colors.textSecondary};
     }
   }
+
+  .article-highlight {
+    background: ${(props) => `${props.theme.colors.accent}14`};
+    border-radius: 10px;
+    padding: 12px;
+    transition: background 0.3s ease;
+  }
 `;
 
 const ErrorMessage = styled.div`
@@ -555,8 +590,12 @@ const VadeMecum: React.FC = () => {
   const [activeTab, setActiveTab] = React.useState<
     "constitution" | "codes" | "laws" | "jurisprudence" | "oab" | "statutes"
   >("codes");
+  const [highlightedArticleId, setHighlightedArticleId] = React.useState<
+    string | null
+  >(null);
   const [isMobile, setIsMobile] = React.useState(false);
   const contentRef = React.useRef<HTMLDivElement>(null);
+  const highlightTimerRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
     const checkMobile = () => {
@@ -610,12 +649,12 @@ const VadeMecum: React.FC = () => {
       const token =
         typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
       if (token) headers.Authorization = `Bearer ${token}`;
-      const response = await fetch(VADE_LAWS_URL, { headers });
+      const response = await fetch(VADE_LAWS_GROUPED_URL, { headers });
       if (!response.ok) {
         throw new Error(`Falha ao carregar leis (${response.status})`);
       }
       const payload = await response.json();
-      setLaws(normalizeCollection(payload));
+      setLaws(normalizeLawsGroupCollection(payload));
       setHasLoadedLaws(true);
     } catch (requestError) {
       setLawsError(
@@ -640,12 +679,12 @@ const VadeMecum: React.FC = () => {
       const token =
         typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
       if (token) headers.Authorization = `Bearer ${token}`;
-      const response = await fetch(VADE_OAB_URL, { headers });
+      const response = await fetch(VADE_OAB_CAPAS_URL, { headers });
       if (!response.ok) {
         throw new Error(`Falha ao carregar OAB (${response.status})`);
       }
       const payload = await response.json();
-      setOabRecords(normalizeCollection(payload));
+      setOabRecords(normalizeOabCapaCollection(payload));
       setHasLoadedOab(true);
     } catch (requestError) {
       setOabError(
@@ -670,12 +709,12 @@ const VadeMecum: React.FC = () => {
       const token =
         typeof window !== "undefined" ? window.localStorage.getItem(TOKEN_KEY) : null;
       if (token) headers.Authorization = `Bearer ${token}`;
-      const response = await fetch(VADE_JURIS_URL, { headers });
+      const response = await fetch(VADE_JURIS_GROUPED_URL, { headers });
       if (!response.ok) {
         throw new Error(`Falha ao carregar jurisprudência (${response.status})`);
       }
       const payload = await response.json();
-      setJurisRecords(normalizeCollection(payload));
+      setJurisRecords(normalizeJurisGroupCollection(payload));
       setHasLoadedJuris(true);
     } catch (requestError) {
       setJurisError(
@@ -769,6 +808,30 @@ const VadeMecum: React.FC = () => {
       if (Number.isFinite(fallback)) return fallback;
     }
     return null;
+  }, []);
+
+  const extractArticleNumber = React.useCallback((record: VadeMecumCode) => {
+    const direct = record.num_artigo?.trim();
+    if (direct) return direct;
+    const candidates = [record.ordem, record.normativo];
+    for (const candidate of candidates) {
+      const value = candidate?.trim();
+      if (!value) continue;
+      const match = value.match(/\d+/);
+      if (match?.[0]) return match[0];
+    }
+    return "";
+  }, []);
+
+  const extractArticleLabel = React.useCallback((record: VadeMecumCode) => {
+    const direct = record.num_artigo?.trim();
+    if (direct) return direct;
+    const normativo = record.normativo?.trim() || "";
+    const match = normativo.match(/Art\.?\s*\d+[^\s]*/i);
+    if (match?.[0]) return match[0].trim();
+    const ordem = record.ordem?.trim();
+    if (ordem) return ordem;
+    return "";
   }, []);
 
   const formatPair = React.useCallback((left: string, right: string) => {
@@ -1211,6 +1274,7 @@ const VadeMecum: React.FC = () => {
       group.label;
     const isStatutesTab = activeTab === "statutes";
     const isConstitutionTab = activeTab === "constitution";
+    const isJurisTab = activeTab === "jurisprudence";
     const detailMatch = isStatutesTab || isConstitutionTab
       ? {
           idcodigo: group.codes.find((code) => code.idcodigo?.trim())?.idcodigo || "",
@@ -1222,7 +1286,7 @@ const VadeMecum: React.FC = () => {
             "",
         }
       : null;
-    if (!nomecodigo?.trim()) return;
+    if (!nomecodigo?.trim() && !isJurisTab) return;
 
     const fetchDetail = async () => {
       setSelectedLoading(true);
@@ -1236,7 +1300,7 @@ const VadeMecum: React.FC = () => {
         if (token) headers.Authorization = `Bearer ${token}`;
 
         const url =
-          isStatutesTab || isConstitutionTab
+          isStatutesTab || isConstitutionTab || isJurisTab
             ? sourceUrl
             : `${sourceUrl}?nomecodigo=${encodeURIComponent(nomecodigo)}`;
         let response = await fetch(url, { headers });
@@ -1272,6 +1336,16 @@ const VadeMecum: React.FC = () => {
           } else {
             setSelectedGroupCodes(loaded);
           }
+        } else if (isJurisTab) {
+          const targetCabecalho = normalizeText(group.label);
+          const jurisFiltered = loaded.filter(
+            (code) => normalizeText(code.cabecalho ?? "") === targetCabecalho
+          );
+          if (jurisFiltered.length > 0) {
+            setSelectedGroupCodes(jurisFiltered);
+          } else {
+            setSelectedGroupCodes(loaded);
+          }
         } else if (matching.length > 0) {
           setSelectedGroupCodes(matching);
         }
@@ -1295,6 +1369,7 @@ const VadeMecum: React.FC = () => {
     setSelectedGroupCodes([]);
     setSelectedError(null);
     setArticleQuery("");
+    setHighlightedArticleId(null);
     setSelectedSource("codes");
   };
 
@@ -1304,6 +1379,15 @@ const VadeMecum: React.FC = () => {
         const target = document.getElementById(`article-${articleId}`);
         target?.scrollIntoView({ behavior: "smooth", block: "start" });
       }
+      setHighlightedArticleId(articleId);
+      if (highlightTimerRef.current) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+      highlightTimerRef.current = window.setTimeout(() => {
+        setHighlightedArticleId((current) =>
+          current === articleId ? null : current
+        );
+      }, 1600);
       if (isMobile) {
         setIsNavOpen(false);
       }
@@ -1311,8 +1395,97 @@ const VadeMecum: React.FC = () => {
     [isMobile]
   );
 
+  React.useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) {
+        window.clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
+
   const articleNavGroups = React.useMemo<ArticleNavGroup[]>(() => {
     if (!selectedGroup) return [];
+    if (selectedSource === "jurisprudence") {
+      const sortedRecords = [...selectedGroupCodes].sort((a, b) => {
+        const aOrder =
+          parseOrder(a.enunciado || "") ??
+          parseOrder(a.normativo || "") ??
+          parseOrder(a.ordem || "") ??
+          parseOrder(a.num_artigo || "");
+        const bOrder =
+          parseOrder(b.enunciado || "") ??
+          parseOrder(b.normativo || "") ??
+          parseOrder(b.ordem || "") ??
+          parseOrder(b.num_artigo || "");
+        if (aOrder === null && bOrder === null) return 0;
+        if (aOrder === null) return 1;
+        if (bOrder === null) return -1;
+        return aOrder - bOrder;
+      });
+
+      const items = sortedRecords.map((record, index) => {
+        const orderValue =
+          parseOrder(record.enunciado || "") ??
+          parseOrder(record.normativo || "") ??
+          parseOrder(record.ordem || "") ??
+          parseOrder(record.num_artigo || "") ??
+          index + 1;
+        return {
+          articleId: record.id,
+          label: `Súmula nº ${orderValue ?? index + 1}`,
+          order: orderValue ?? null,
+        };
+      });
+
+      return [
+        {
+          key: "jurisprudencia",
+          label: "Jurisprudência",
+          order: null,
+          priority: 0,
+          items: items.sort((a, b) =>
+            a.order === null && b.order === null
+              ? a.label.localeCompare(b.label, "pt-BR")
+              : (a.order ?? 0) - (b.order ?? 0)
+          ),
+        },
+      ];
+    }
+    if (selectedSource === "statutes") {
+      const sortedRecords = [...selectedGroupCodes].sort((a, b) => {
+        const aOrder = parseOrder(extractArticleLabel(a) || "");
+        const bOrder = parseOrder(extractArticleLabel(b) || "");
+        if (aOrder === null && bOrder === null) return 0;
+        if (aOrder === null) return 1;
+        if (bOrder === null) return -1;
+        return aOrder - bOrder;
+      });
+
+      const items = sortedRecords.map((record, index) => {
+        const label = extractArticleLabel(record) || String(index + 1);
+        const order = parseOrder(label) ?? index + 1;
+        return {
+          articleId: record.id,
+          label,
+          order,
+        };
+      });
+
+      return [
+        {
+          key: "estatutos",
+          label: "Artigos",
+          order: null,
+          priority: 0,
+          items: items.sort((a, b) =>
+            a.order === null && b.order === null
+              ? a.label.localeCompare(b.label, "pt-BR")
+              : (a.order ?? 0) - (b.order ?? 0)
+          ),
+        },
+      ];
+    }
+
     const card = buildCardSections(selectedGroup, selectedGroupCodes);
     const codeById = new Map(selectedGroupCodes.map((code) => [code.id, code]));
     const groups = new Map<string, ArticleNavGroup>();
@@ -1372,7 +1545,15 @@ const VadeMecum: React.FC = () => {
               a.label.localeCompare(b.label, "pt-BR")
             )
       );
-  }, [buildCardSections, getPartePriority, parseOrder, selectedGroup, selectedGroupCodes]);
+  }, [
+    buildCardSections,
+    extractArticleLabel,
+    getPartePriority,
+    parseOrder,
+    selectedGroup,
+    selectedGroupCodes,
+    selectedSource,
+  ]);
 
   const filteredNavGroups = React.useMemo(() => {
     const term = articleQuery.trim().toLowerCase();
@@ -1434,6 +1615,8 @@ const VadeMecum: React.FC = () => {
             <ItemList
               singleColumn={
                 activeTab === "codes" ||
+                activeTab === "laws" ||
+                activeTab === "oab" ||
                 activeTab === "jurisprudence" ||
                 activeTab === "statutes" ||
                 activeTab === "constitution"
@@ -1460,10 +1643,12 @@ const VadeMecum: React.FC = () => {
             <div>
               {visibleGroupsByTipo.map(({ tipo, groups }) => (
                 <GroupSection key={tipo}>
-                  <GroupTitle>{tipo}</GroupTitle>
+                  {activeTab !== "oab" && <GroupTitle>{tipo}</GroupTitle>}
                   <ItemList
                     singleColumn={
                       activeTab === "codes" ||
+                      activeTab === "laws" ||
+                      activeTab === "oab" ||
                       activeTab === "jurisprudence" ||
                       activeTab === "statutes" ||
                       activeTab === "constitution"
@@ -1471,14 +1656,20 @@ const VadeMecum: React.FC = () => {
                   >
                     {groups.map((group) => {
                       const description = sanitizeGroupDescription(group.description);
+                      const isJurisTab = activeTab === "jurisprudence";
+                      const isLawsTab = activeTab === "laws";
+                      const isOabTab = activeTab === "oab";
                       return (
                         <ItemCard key={group.key} onClick={() => openGroup(group.key)}>
                           <h3>{group.label}</h3>
-                          {description ? (
-                            <p>{description}</p>
-                          ) : !group.description ? (
-                            <p>Sem descricao cadastrada.</p>
-                          ) : null}
+                          {!isJurisTab &&
+                            !isLawsTab &&
+                            !isOabTab &&
+                            (description ? (
+                              <p>{description}</p>
+                            ) : !group.description ? (
+                              <p>Sem descricao cadastrada.</p>
+                            ) : null)}
                         </ItemCard>
                       );
                     })}
@@ -1501,21 +1692,10 @@ const VadeMecum: React.FC = () => {
           />
           <ContentArea>
             <MainContent hasNavigation ref={contentRef}>
-              <button
-                type="button"
-                onClick={resetDetail}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontWeight: 600,
-                  color: "#f97316",
-                  marginBottom: 16,
-                }}
-              >
+              <BackToListButton type="button" onClick={resetDetail}>
                 <ArrowLeft size={18} />
                 Voltar para lista
-              </button>
+              </BackToListButton>
 
               <ArticleContent>
                 <Card style={{ padding: 24 }}>
@@ -1556,8 +1736,8 @@ const VadeMecum: React.FC = () => {
                     })();
                     if (isStatutesDetail) {
                       const sortedRecords = [...selectedGroupCodes].sort((a, b) => {
-                        const aOrder = parseOrder(a.ordem);
-                        const bOrder = parseOrder(b.ordem);
+                        const aOrder = parseOrder(extractArticleLabel(a));
+                        const bOrder = parseOrder(extractArticleLabel(b));
                         if (aOrder === null && bOrder === null) return 0;
                         if (aOrder === null) return 1;
                         if (bOrder === null) return -1;
@@ -1591,6 +1771,11 @@ const VadeMecum: React.FC = () => {
                                     scrollMarginTop: 90,
                                     borderRadius: 8,
                                   }}
+                                  className={
+                                    highlightedArticleId === record.id
+                                      ? "article-highlight"
+                                      : undefined
+                                  }
                                 >
                                   {before}
                                   {art ? (
@@ -1662,7 +1847,18 @@ const VadeMecum: React.FC = () => {
                               return (
                                 <div
                                   key={`${record.id || record.nomecodigo || index}`}
-                                  style={{ display: "flex", flexDirection: "column", gap: 12 }}
+                                  id={`article-${record.id}`}
+                                  style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 12,
+                                    scrollMarginTop: 90,
+                                  }}
+                                  className={
+                                    highlightedArticleId === record.id
+                                      ? "article-highlight"
+                                      : undefined
+                                  }
                                 >
                                   {typeValue && (
                                     <p
@@ -1748,7 +1944,6 @@ const VadeMecum: React.FC = () => {
                             )}
                             <div style={{ display: "grid", gap: 8 }}>
                               {section.items.map((item, index) => {
-                                const orderPrefix = item.orderLabel ? `${item.orderLabel}. ` : "";
                                 const { before, art, after } = splitArticleHighlight(
                                   item.normativo
                                 );
@@ -1761,8 +1956,12 @@ const VadeMecum: React.FC = () => {
                                       scrollMarginTop: 90,
                                       borderRadius: 8,
                                     }}
+                                    className={
+                                      highlightedArticleId === item.articleId
+                                        ? "article-highlight"
+                                        : undefined
+                                    }
                                   >
-                                    {orderPrefix}
                                     {before}
                                     {art ? (
                                       <span className="article-label">{art}</span>
@@ -1807,7 +2006,10 @@ const VadeMecum: React.FC = () => {
                           type="button"
                           onClick={() => handleArticleSelect(item.articleId)}
                         >
-                          Art. {item.label || "-"}
+                          {selectedSource === "jurisprudence" ||
+                          selectedSource === "statutes"
+                            ? item.label || "-"
+                            : `Art. ${item.label || "-"}`}
                         </ArticleButton>
                       ))}
                     </ArticleGrid>
@@ -1937,6 +2139,104 @@ const normalizeCollection = (payload: unknown): VadeMecumCode[] => {
   }
 
   return [];
+};
+
+const normalizeJurisGroupCollection = (payload: unknown): VadeMecumCode[] => {
+  if (!payload) return [];
+  let items: unknown[] = [];
+
+  if (Array.isArray(payload)) {
+    items = payload;
+  } else if (isRecord(payload)) {
+    const itemsCandidate = payload["items"];
+    const dataCandidate = payload["data"];
+    if (Array.isArray(itemsCandidate)) {
+      items = itemsCandidate;
+    } else if (Array.isArray(dataCandidate)) {
+      items = dataCandidate;
+    }
+  }
+
+  return items.map((item, index) => {
+    const record: UnknownRecord = isRecord(item) ? item : {};
+    const cabecalho = getFirstString(record, ["cabecalho", "Cabecalho"], "");
+    const label = cabecalho || `Grupo ${index + 1}`;
+    return normalizeRecord(
+      {
+        id: `juris-${index}`,
+        tipo: "Jurisprudência",
+        nomecodigo: label,
+        cabecalho: label,
+      },
+      index
+    );
+  });
+};
+
+const normalizeLawsGroupCollection = (payload: unknown): VadeMecumCode[] => {
+  if (!payload) return [];
+  let items: unknown[] = [];
+
+  if (Array.isArray(payload)) {
+    items = payload;
+  } else if (isRecord(payload)) {
+    const itemsCandidate = payload["items"];
+    const dataCandidate = payload["data"];
+    if (Array.isArray(itemsCandidate)) {
+      items = itemsCandidate;
+    } else if (Array.isArray(dataCandidate)) {
+      items = dataCandidate;
+    }
+  }
+
+  return items.map((item, index) => {
+    const record: UnknownRecord = isRecord(item) ? item : {};
+    const nomecodigo = getFirstString(record, ["nomecodigo", "Nomecodigo"], "");
+    const label = nomecodigo || `Lei ${index + 1}`;
+    return normalizeRecord(
+      {
+        id: `lei-${index}`,
+        tipo: "Leis",
+        nomecodigo: label,
+        cabecalho: "",
+      },
+      index
+    );
+  });
+};
+
+const normalizeOabCapaCollection = (payload: unknown): VadeMecumCode[] => {
+  if (!payload) return [];
+  let items: unknown[] = [];
+
+  if (Array.isArray(payload)) {
+    items = payload;
+  } else if (isRecord(payload)) {
+    const itemsCandidate = payload["items"];
+    const dataCandidate = payload["data"];
+    if (Array.isArray(itemsCandidate)) {
+      items = itemsCandidate;
+    } else if (Array.isArray(dataCandidate)) {
+      items = dataCandidate;
+    }
+  }
+
+  return items.map((item, index) => {
+    const label =
+      typeof item === "string"
+        ? item.trim()
+        : getFirstString(item as UnknownRecord, ["nomecodigo", "Nomecodigo"], "");
+    const safeLabel = label || `OAB ${index + 1}`;
+    return normalizeRecord(
+      {
+        id: `oab-${index}`,
+        tipo: "OAB",
+        nomecodigo: safeLabel,
+        cabecalho: "",
+      },
+      index
+    );
+  });
 };
 
 const formatDate = (value: string) => {
