@@ -95,6 +95,9 @@ dependencies:
   '@tanstack/react-query':
     specifier: ^5.56.2
     version: 5.90.2(react@19.1.1)
+  '@tiptap/core':
+    specifier: ^3.14.0
+    version: 3.14.0(@tiptap/pm@3.14.0)
   '@tiptap/extension-font-family':
     specifier: ^3.14.0
     version: 3.14.0(@tiptap/extension-text-style@3.14.0)
