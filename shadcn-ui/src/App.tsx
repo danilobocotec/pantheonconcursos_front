@@ -8,8 +8,10 @@ import VadeMecum from './pages/VadeMecum';
 import MapasMentais from './pages/MapasMentais';
 import Settings from './pages/Settings';
 import ConteudoLivro from './pages/ConteudoLivro';
+import ConteudoItem from './pages/ConteudoItem';
 import PlanoEstudos from './pages/PlanoEstudos';
 import { Sun, Moon } from 'lucide-react';
+import { buildApiUrl } from './lib/api';
 
 type AppProps = {
   initialSection?: string;
@@ -212,6 +214,11 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
     moduleId: string;
     lessonId: string;
   } | null>(null);
+  const [currentContent, setCurrentContent] = useState<{
+    course: any;
+    module: any;
+    item: any;
+  } | null>(null);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -228,6 +235,36 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
     setActiveSection('content');
   };
 
+  const handleNavigateToContent = async (course: any, module: any, item: any) => {
+    setCurrentContent({ course, module, item });
+    setActiveSection('item-content');
+  };
+
+  const handleNavigateToItem = async (itemId: string) => {
+    if (!currentContent) return;
+
+    const newItem = currentContent.module.itens.find((i: any) => i.id === itemId);
+    if (newItem) {
+      setCurrentContent({
+        ...currentContent,
+        item: newItem
+      });
+    }
+  };
+
+  const handleBackToCourses = () => {
+    setCurrentContent(null);
+    setActiveSection('courses');
+  };
+
+  const handleNavigateToLogin = () => {
+    if (onNavigateHome) {
+      onNavigateHome();
+    } else {
+      window.location.href = '/';
+    }
+  };
+
   useEffect(() => {
     setActiveSection(initialSection);
   }, [initialSection]);
@@ -241,7 +278,7 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
       case 'plano-estudos':
         return <PlanoEstudos />;
       case 'courses':
-        return <MeusCursos onContentLoad={handleContentLoad} />;
+        return <MeusCursos onContentLoad={handleContentLoad} onNavigateToContent={handleNavigateToContent} onNavigateToLogin={handleNavigateToLogin} />;
       case 'questions-objective':
       case 'questions-discursive':
       case 'questions-exams':
@@ -256,6 +293,16 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
         return <Settings />;
       case 'content':
         return <ConteudoLivro contentData={contentData} onBack={() => setActiveSection('courses')} />;
+      case 'item-content':
+        return currentContent ? (
+          <ConteudoItem
+            course={currentContent.course}
+            module={currentContent.module}
+            item={currentContent.item}
+            onBack={handleBackToCourses}
+            onNavigateToItem={handleNavigateToItem}
+          />
+        ) : null;
       default:
         return (
           <DashboardContainer>
@@ -301,29 +348,33 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
     }
   };
 
+  const hideSidebar = activeSection === 'item-content';
+
   return (
     <ThemeProvider theme={isDarkMode ? darkTheme : lightTheme}>
       <GlobalStyle />
       <AppContainer>
-        <Sidebar 
-          activeSection={activeSection} 
-          onSectionChange={setActiveSection}
-          isDarkMode={isDarkMode}
-          onThemeToggle={() => setIsDarkMode(!isDarkMode)}
-        />
-        <MainContent isMobile={isMobile}>
+        {!hideSidebar && (
+          <>
+            <Sidebar
+              activeSection={activeSection}
+              onSectionChange={setActiveSection}
+              isDarkMode={isDarkMode}
+              onThemeToggle={() => setIsDarkMode(!isDarkMode)}
+            />
+            {onNavigateHome && (
+              <BackButton onClick={onNavigateHome}>
+                Voltar ao site
+              </BackButton>
+            )}
+            <ThemeToggle onClick={() => setIsDarkMode(!isDarkMode)}>
+              {isDarkMode ? <Sun size={24} /> : <Moon size={24} />}
+            </ThemeToggle>
+          </>
+        )}
+        <MainContent isMobile={isMobile} style={hideSidebar ? { marginLeft: 0 } : {}}>
           {renderContent()}
         </MainContent>
-
-        {onNavigateHome && (
-          <BackButton onClick={onNavigateHome}>
-            Voltar ao site
-          </BackButton>
-        )}
-        
-        <ThemeToggle onClick={() => setIsDarkMode(!isDarkMode)}>
-          {isDarkMode ? <Sun size={24} /> : <Moon size={24} />}
-        </ThemeToggle>
       </AppContainer>
     </ThemeProvider>
   );
