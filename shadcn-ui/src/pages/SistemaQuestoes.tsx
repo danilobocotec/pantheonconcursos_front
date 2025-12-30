@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import styled from 'styled-components';
+import { buildApiUrl } from '@/lib/api';
 import { 
   HelpCircle, 
   FileText, 
@@ -69,6 +70,199 @@ interface CustomLabelProps {
   outerRadius: number;
   percentage: number;
 }
+
+type UnknownRecord = Record<string, unknown>;
+
+const TOKEN_KEY = 'pantheon:token';
+const QUESTIONS_URL = buildApiUrl('/questoes');
+
+const isRecord = (value: unknown): value is UnknownRecord =>
+  typeof value === 'object' && value !== null;
+
+const getString = (record: UnknownRecord, key: string) => {
+  const value = record[key];
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return '';
+};
+
+const getFirstString = (record: UnknownRecord, keys: string[], fallback = '') => {
+  for (const key of keys) {
+    const value = getString(record, key);
+    if (value) return value;
+  }
+  return fallback;
+};
+
+const toRecord = (value: unknown): UnknownRecord | null =>
+  isRecord(value) ? value : null;
+
+const toNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+};
+
+const normalizeQuestionText = (value: string) => {
+  if (!value) return '';
+  const withBreaks = value.replace(/<br\s*\/?>/gi, '\n');
+  const withoutTags = withBreaks.replace(/<\/?[^>]+>/g, '');
+  return withoutTags.replace(/\r\n/g, '\n').trim();
+};
+
+const normalizeFilterValue = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const indexToLetter = (index: number) => String.fromCharCode(97 + index);
+
+const extractQuestionOptions = (record: UnknownRecord): string[] => {
+  const raw =
+    record['alternativas'] ??
+    record['opcoes'] ??
+    record['opcoes_texto'] ??
+    record['options'] ??
+    record['alternatives'] ??
+    record['respostas'];
+  if (Array.isArray(raw)) {
+    return raw.map((item) => {
+      if (typeof item === 'string') return normalizeQuestionText(item);
+      if (isRecord(item)) {
+        return normalizeQuestionText(
+          getFirstString(
+            item,
+            ['texto', 'descricao', 'enunciado', 'conteudo', 'value', 'titulo'],
+            ''
+          )
+        );
+      }
+      return normalizeQuestionText(String(item ?? ''));
+    });
+  }
+  if (isRecord(raw)) {
+    return Object.values(raw).map((value) => {
+      if (typeof value === 'string') return normalizeQuestionText(value);
+      if (isRecord(value)) {
+        return normalizeQuestionText(
+          getFirstString(
+            value,
+            ['texto', 'descricao', 'enunciado', 'conteudo', 'value', 'titulo'],
+            ''
+          )
+        );
+      }
+      return normalizeQuestionText(String(value ?? ''));
+    });
+  }
+  return [];
+};
+
+const normalizeDifficulty = (value: string) => {
+  const normalized = normalizeFilterValue(value);
+  if (normalized.includes('facil') || normalized.includes('easy')) return 'easy';
+  if (normalized.includes('dificil') || normalized.includes('hard')) return 'hard';
+  if (normalized.includes('medio') || normalized.includes('medium')) return 'medium';
+  return 'medium';
+};
+
+const getDifficultyLabel = (value: Question['difficulty']) => {
+  if (value === 'easy') return 'Fácil';
+  if (value === 'hard') return 'Difícil';
+  return 'Médio';
+};
+
+const normalizeQuestionRecord = (item: unknown, index: number): Question => {
+  const record: UnknownRecord = isRecord(item) ? item : {};
+  const inputs = toRecord(record['inputs']) ?? {};
+  const numeroAlternativaCorreta =
+    toNumber(record['numero_alternativa_correta']) ??
+    toNumber(record['numeroAlternativaCorreta']) ??
+    toNumber(inputs['numeroAlternativaCorreta']);
+
+  const enunciadoRaw = getFirstString(record, [
+    'enunciado',
+    'enunciado_questao',
+    'texto',
+    'pergunta',
+    'descricao',
+    'questao',
+    'questao_texto',
+    'html_completo',
+    'htmlCompleto'
+  ]);
+
+  const options = extractQuestionOptions(record).filter((option) => option);
+  const correctAnswer =
+    numeroAlternativaCorreta && numeroAlternativaCorreta > 0
+      ? indexToLetter(numeroAlternativaCorreta - 1)
+      : '';
+
+  const disciplina = getFirstString(record, [
+    'area_conhecimento',
+    'areaConhecimento',
+    'disciplina'
+  ]);
+  const assunto = getFirstString(record, ['assunto', 'tema', 'topico', 'cargo']);
+  const instituicao = getFirstString(record, ['orgao', 'instituicao']);
+  const concurso = getFirstString(record, ['concurso', 'ano']);
+  const difficultyValue = normalizeDifficulty(
+    getFirstString(record, ['dificuldade', 'difficulty'], 'medium')
+  );
+  const gabarito = normalizeQuestionText(getString(record, 'gabarito'));
+  const comentario = normalizeQuestionText(getString(record, 'comentario'));
+  const resolucao = normalizeQuestionText(
+    getFirstString(record, ['resolucao_banca', 'resolucaoBanca'])
+  );
+  const explanation = [gabarito, comentario, resolucao].filter(Boolean).join('\n\n');
+  const yearNumber = Number.parseInt(concurso, 10);
+
+  return {
+    id: getFirstString(
+      record,
+      ['id', 'uuid', 'id_questao', 'idQuestao'],
+      String(index)
+    ),
+    type: 'multiple',
+    subject: assunto || '-',
+    discipline: disciplina || '-',
+    institution: instituicao || '-',
+    year: Number.isNaN(yearNumber) ? 0 : yearNumber,
+    difficulty: difficultyValue as Question['difficulty'],
+    question: normalizeQuestionText(enunciadoRaw) || 'Enunciado nao informado.',
+    options: options.length ? options : undefined,
+    correctAnswer,
+    explanation: explanation || 'Sem gabarito informado.',
+    answered: false
+  };
+};
+
+const normalizeQuestionCollection = (payload: unknown): Question[] => {
+  if (!payload) return [];
+  if (Array.isArray(payload)) {
+    return payload.map((item, index) => normalizeQuestionRecord(item, index));
+  }
+  if (!isRecord(payload)) return [];
+
+  const itemsCandidate = payload['items'];
+  if (Array.isArray(itemsCandidate)) {
+    return itemsCandidate.map((item, index) => normalizeQuestionRecord(item, index));
+  }
+
+  const dataCandidate = payload['data'];
+  if (Array.isArray(dataCandidate)) {
+    return dataCandidate.map((item, index) => normalizeQuestionRecord(item, index));
+  }
+
+  return [];
+};
 
 const QuestionsContainer = styled.div`
   padding: 24px;
@@ -342,6 +536,7 @@ const QuestionText = styled.div<{ fontSize?: number }>`
   font-size: ${props => props.fontSize || 16}px;
   line-height: 1.6;
   color: ${props => props.theme.colors.text};
+  white-space: pre-wrap;
   margin-bottom: 20px;
 
   ${media.mobile} {
@@ -892,6 +1087,10 @@ const SistemaQuestoes: React.FC = () => {
   const [selectedNotebook, setSelectedNotebook] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [fontSize, setFontSize] = useState(16);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+  const [questionsError, setQuestionsError] = useState<string | null>(null);
+  const [hasLoadedQuestions, setHasLoadedQuestions] = useState(false);
 
   const isSubscriber = true;
 
@@ -910,34 +1109,43 @@ const SistemaQuestoes: React.FC = () => {
     }
   };
 
+  const loadQuestions = useCallback(async () => {
+    setQuestionsLoading(true);
+    setQuestionsError(null);
+    try {
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      const token =
+        typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(QUESTIONS_URL, { headers });
+      if (!response.ok) {
+        throw new Error(`Falha ao carregar questoes (${response.status})`);
+      }
+      const payload = await response.json();
+      setQuestions(normalizeQuestionCollection(payload));
+      setHasLoadedQuestions(true);
+    } catch (requestError) {
+      setQuestionsError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Erro ao carregar questoes.'
+      );
+    } finally {
+      setQuestionsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'objective') return;
+    if (hasLoadedQuestions || questionsLoading) return;
+    void loadQuestions();
+  }, [activeTab, hasLoadedQuestions, loadQuestions, questionsLoading]);
+
   const subjectsByDiscipline: { [key: string]: string[] } = {
     'civil': ['LINDB', 'Domicílio'],
     'constitucional': ['Poder Legislativo', 'Controle de Constitucionalidade'],
     'penal': ['Teoria Geral do Delito', 'Prisão Preventiva']
   };
-
-  const mockQuestions: Question[] = [
-    {
-      id: '1',
-      type: 'multiple',
-      subject: 'Contratos',
-      discipline: 'Direito Civil',
-      institution: 'FGV',
-      year: 2023,
-      difficulty: 'medium',
-      question: 'Sobre os contratos de compra e venda, é correto afirmar que:',
-      options: [
-        'A venda de ascendente para descendente é sempre válida.',
-        'O contrato de compra e venda é sempre consensual.',
-        'A tradição é elemento essencial do contrato de compra e venda.',
-        'O vendedor responde pela evicção e pelos vícios redibitórios.',
-        'O preço deve ser necessariamente em dinheiro.'
-      ],
-      correctAnswer: 'D',
-      explanation: 'O vendedor tem a obrigação legal de garantir ao comprador a posse pacífica da coisa vendida (evicção) e responder por defeitos ocultos que tornem a coisa imprópria ao uso (vícios redibitórios).',
-      answered: false
-    }
-  ];
 
   const mockDiscursiveQuestions: DiscursiveQuestion[] = [
     {
@@ -1106,9 +1314,59 @@ const SistemaQuestoes: React.FC = () => {
     }
   };
 
-  const renderObjectiveQuestions = () => (
-    <>
-      <FiltersContainer>
+  const renderObjectiveQuestions = () => {
+    const disciplineFilterMap: Record<string, string[]> = {
+      civil: ['direito civil', 'civil'],
+      constitucional: ['direito constitucional', 'constitucional'],
+      penal: ['direito penal', 'penal']
+    };
+    const institutionFilterMap: Record<string, string[]> = {
+      fgv: ['fgv'],
+      cespe: ['cespe', 'cebraspe']
+    };
+    const normalizedDiscipline = normalizeFilterValue(selectedFilters.discipline);
+    const normalizedSubject = normalizeFilterValue(selectedFilters.subject);
+    const normalizedInstitution = normalizeFilterValue(selectedFilters.institution);
+    const normalizedYear = selectedFilters.year.trim();
+    const normalizedDifficulty = normalizeFilterValue(selectedFilters.difficulty);
+
+    const filteredQuestions = questions.filter((question) => {
+      if (normalizedDiscipline) {
+        const allowed = disciplineFilterMap[normalizedDiscipline] || [];
+        const normalizedQuestionDiscipline = normalizeFilterValue(question.discipline);
+        if (!allowed.some((entry) => normalizedQuestionDiscipline.includes(entry))) {
+          return false;
+        }
+      }
+      if (normalizedSubject) {
+        const normalizedQuestionSubject = normalizeFilterValue(question.subject);
+        if (!normalizedQuestionSubject.includes(normalizedSubject)) {
+          return false;
+        }
+      }
+      if (normalizedInstitution) {
+        const allowed = institutionFilterMap[normalizedInstitution] || [];
+        const normalizedQuestionInstitution = normalizeFilterValue(question.institution);
+        if (!allowed.some((entry) => normalizedQuestionInstitution.includes(entry))) {
+          return false;
+        }
+      }
+      if (normalizedYear) {
+        if (String(question.year) !== normalizedYear) {
+          return false;
+        }
+      }
+      if (normalizedDifficulty) {
+        if (normalizeFilterValue(question.difficulty) !== normalizedDifficulty) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    return (
+      <React.Fragment>
+        <FiltersContainer>
         <FilterGroup>
           <label>Disciplina</label>
           <select 
@@ -1202,11 +1460,18 @@ const SistemaQuestoes: React.FC = () => {
       </FiltersContainer>
 
       <QuestionCounter>
-        {mockQuestions.length} questões encontradas
+        {filteredQuestions.length} questões encontradas
         {!isSubscriber && ` • ${5 - questionsAnswered} questões restantes (gratuitas)`}
       </QuestionCounter>
 
-      {mockQuestions.map((question, index) => {
+      {questionsLoading ? (
+        <Card>Carregando questoes...</Card>
+      ) : questionsError ? (
+        <Card>{questionsError}</Card>
+      ) : filteredQuestions.length === 0 ? (
+        <Card>Nenhuma questao encontrada.</Card>
+      ) : (
+        filteredQuestions.map((question, index) => {
         const isAnswered = answeredQuestions[question.id];
         const userAnswer = selectedAnswers[question.id];
         const isCorrect = userAnswer === question.correctAnswer;
@@ -1223,8 +1488,14 @@ const SistemaQuestoes: React.FC = () => {
                 <div className="meta">
                   <span className="tag">{question.discipline}</span>
                   <span className="tag">{question.subject}</span>
-                  <span className="tag">{question.institution} {question.year}</span>
-                  <span className="tag">{question.difficulty}</span>
+                  {(question.institution || question.year) && (
+                    <span className="tag">
+                      {[question.institution, question.year || '']
+                        .filter(Boolean)
+                        .join(' ')}
+                    </span>
+                  )}
+                  <span className="tag">{getDifficultyLabel(question.difficulty)}</span>
                 </div>
               </div>
             </QuestionHeader>
@@ -1232,11 +1503,12 @@ const SistemaQuestoes: React.FC = () => {
             <QuestionText fontSize={fontSize}>
               <strong>Questão {index + 1}:</strong> {question.question}
             </QuestionText>
+            <div style={{ height: 12 }} />
 
             {question.type === 'multiple' && question.options && (
               <OptionsContainer>
                 {question.options.map((option, optionIndex) => {
-                  const letter = String.fromCharCode(65 + optionIndex);
+                  const letter = String.fromCharCode(97 + optionIndex);
                   const isSelected = selectedAnswers[question.id] === letter;
                   const isStriked = strikedOptions[question.id]?.includes(optionIndex);
                   const isCorrectOption = isAnswered && question.correctAnswer === letter;
@@ -1359,9 +1631,11 @@ const SistemaQuestoes: React.FC = () => {
             ))}
           </QuestionItem>
         );
-      })}
-    </>
-  );
+        })
+      )}
+      </React.Fragment>
+    );
+  };
 
   const renderDiscursiveQuestions = () => (
     <>
@@ -1771,3 +2045,5 @@ const SistemaQuestoes: React.FC = () => {
 };
 
 export default SistemaQuestoes;
+
+

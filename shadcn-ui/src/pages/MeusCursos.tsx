@@ -1,34 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { ChevronDown, ChevronRight, Play, CheckCircle, Clock, Award, BookOpen, RotateCcw } from 'lucide-react';
 import { Card, Button, media } from '../styles/GlobalStyles';
+import { authenticatedGet, clearAuthToken } from '../lib/auth';
 
 interface Course {
   id: string;
-  name: string;
-  modules: Module[];
+  nome: string;
+  categoria_id?: string;
+  modulos?: Module[];
   progress: number;
   isExpanded?: boolean;
 }
 
 interface Module {
   id: string;
-  name: string;
-  lessons: Lesson[];
+  nome: string;
+  itens?: Item[];
   progress: number;
   isExpanded?: boolean;
 }
 
-interface Lesson {
+interface Item {
   id: string;
-  title: string;
-  duration: string;
+  titulo: string;
+  tipo: string;
+  conteudo: string;
   completed: boolean;
-  type: 'video' | 'text' | 'audio';
 }
 
 interface MeusCursosProps {
-  onContentLoad?: (courseId: string, moduleId: string, lessonId: string) => void;
+  onContentLoad?: (courseId: string, moduleId: string, itemId: string) => void;
+  onNavigateToContent?: (course: Course, module: Module, item: Item) => void;
+  onNavigateToLogin?: () => void;
 }
 
 const CoursesContainer = styled.div`
@@ -47,7 +51,7 @@ const CoursesContainer = styled.div`
 
 const Header = styled.div`
   margin-bottom: 32px;
-  
+
   h1 {
     font-size: 28px;
     font-weight: 700;
@@ -62,7 +66,7 @@ const Header = styled.div`
       font-size: 22px;
     }
   }
-  
+
   p {
     color: ${props => props.theme.colors.textSecondary};
     font-size: 16px;
@@ -180,7 +184,7 @@ const CourseHeader = styled.div`
   .info {
     flex: 1;
     min-width: 0;
-    
+
     .name {
       font-weight: 600;
       color: ${props => props.theme.colors.text};
@@ -196,7 +200,7 @@ const CourseHeader = styled.div`
         margin-bottom: 2px;
       }
     }
-    
+
     .meta {
       font-size: 12px;
       color: ${props => props.theme.colors.textSecondary};
@@ -221,7 +225,7 @@ const CourseHeader = styled.div`
     min-width: 60px;
     text-align: right;
     flex-shrink: 0;
-    
+
     .percentage {
       font-size: 14px;
       font-weight: 600;
@@ -310,7 +314,7 @@ const ModuleHeader = styled.div`
   .info {
     flex: 1;
     min-width: 0;
-    
+
     .name {
       font-weight: 600;
       color: ${props => props.theme.colors.text};
@@ -326,7 +330,7 @@ const ModuleHeader = styled.div`
         margin-bottom: 2px;
       }
     }
-    
+
     .meta {
       font-size: 12px;
       color: ${props => props.theme.colors.textSecondary};
@@ -351,7 +355,7 @@ const ModuleHeader = styled.div`
     min-width: 60px;
     text-align: right;
     flex-shrink: 0;
-    
+
     .percentage {
       font-size: 14px;
       font-weight: 600;
@@ -376,14 +380,14 @@ const ModuleHeader = styled.div`
   }
 `;
 
-const LessonList = styled.div<{ isExpanded: boolean }>`
+const ItemList = styled.div<{ isExpanded: boolean }>`
   max-height: ${props => props.isExpanded ? '1000px' : '0'};
   overflow: hidden;
   transition: max-height 0.3s ease;
   background: ${props => props.theme.colors.background};
 `;
 
-const LessonItem = styled.div<{ completed: boolean }>`
+const ItemRow = styled.div<{ completed: boolean }>`
   display: flex;
   align-items: center;
   padding: 12px 16px 12px 44px;
@@ -400,7 +404,7 @@ const LessonItem = styled.div<{ completed: boolean }>`
     color: ${props => props.completed ? props.theme.colors.success : props.theme.colors.textSecondary};
     cursor: pointer;
     flex-shrink: 0;
-    
+
     &:hover {
       color: ${props => props.theme.colors.accentSecondary};
     }
@@ -414,7 +418,7 @@ const LessonItem = styled.div<{ completed: boolean }>`
     flex: 1;
     min-width: 0;
     margin-right: 12px;
-    
+
     .title {
       font-weight: 500;
       color: ${props => props.theme.colors.text};
@@ -429,19 +433,6 @@ const LessonItem = styled.div<{ completed: boolean }>`
         font-size: 13px;
       }
     }
-    
-    .duration {
-      font-size: 12px;
-      color: ${props => props.theme.colors.textSecondary};
-
-      @media (max-width: 768px) {
-        font-size: 11px;
-      }
-
-      @media (max-width: 480px) {
-        font-size: 10px;
-      }
-    }
   }
 
   @media (max-width: 768px) {
@@ -453,7 +444,7 @@ const LessonItem = styled.div<{ completed: boolean }>`
   }
 `;
 
-const ActionButton = styled.button<{ completed?: boolean; phase?: string }>`
+const ActionButton = styled.button<{ completed?: boolean }>`
   padding: 6px 12px;
   border-radius: 6px;
   font-size: 12px;
@@ -472,7 +463,7 @@ const ActionButton = styled.button<{ completed?: boolean; phase?: string }>`
       return `
         background: ${props.theme.colors.warning}20;
         color: ${props.theme.colors.warning};
-        
+
         &:hover {
           background: ${props.theme.colors.warning}30;
         }
@@ -481,7 +472,7 @@ const ActionButton = styled.button<{ completed?: boolean; phase?: string }>`
       return `
         background: ${props.theme.colors.accent};
         color: white;
-        
+
         &:hover {
           background: ${props.theme.colors.accentSecondary};
         }
@@ -527,266 +518,164 @@ const ProgressBar = styled.div<{ progress: number }>`
   }
 `;
 
-const AchievementBanner = styled.div`
-  background: linear-gradient(135deg, ${props => props.theme.colors.success}, ${props => props.theme.colors.accent});
-  color: white;
-  padding: 16px;
-  border-radius: 8px;
-  margin: 16px 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  animation: slideIn 0.5s ease;
-
-  .icon {
-    font-size: 24px;
-    flex-shrink: 0;
-
-    @media (max-width: 480px) {
-      font-size: 20px;
-    }
-  }
-
-  .content {
-    flex: 1;
-    
-    .title {
-      font-weight: 600;
-      margin-bottom: 4px;
-
-      @media (max-width: 768px) {
-        font-size: 14px;
-      }
-
-      @media (max-width: 480px) {
-        font-size: 13px;
-        margin-bottom: 2px;
-      }
-    }
-    
-    .description {
-      font-size: 14px;
-      opacity: 0.9;
-
-      @media (max-width: 768px) {
-        font-size: 13px;
-      }
-
-      @media (max-width: 480px) {
-        font-size: 12px;
-      }
-    }
-  }
-
-  @media (max-width: 768px) {
-    padding: 12px;
-    gap: 8px;
-    margin: 12px 0;
-  }
-
-  @media (max-width: 480px) {
-    padding: 10px;
-    gap: 6px;
-    margin: 8px 0;
-  }
+const LoadingMessage = styled.div`
+  text-align: center;
+  padding: 40px;
+  color: ${props => props.theme.colors.textSecondary};
 `;
 
-const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad }) => {
+const ErrorMessage = styled.div`
+  text-align: center;
+  padding: 40px;
+  color: ${props => props.theme.colors.error};
+  background: ${props => props.theme.colors.error}10;
+  border-radius: 8px;
+`;
+
+const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToContent, onNavigateToLogin }) => {
   const [activePhase, setActivePhase] = useState<'1fase' | '2fase'>('1fase');
-  const [courses, setCourses] = useState<{ [phase: string]: Course[] }>({
-    '1fase': [
-      {
-        id: 'civil',
-        name: 'Direito Civil',
-        progress: 65,
-        isExpanded: false,
-        modules: [
-          {
-            id: 'lindb',
-            name: 'Lei de Introdução às Normas do Direito Brasileiro',
-            progress: 100,
-            isExpanded: false,
-            lessons: [
-              { id: 'lindb-1', title: 'Lei de Introdução às Normas do Direito Brasileiro', duration: '45 min', completed: true, type: 'text' }
-            ]
-          },
-          {
-            id: 'pessoas',
-            name: 'Pessoas',
-            progress: 67,
-            isExpanded: false,
-            lessons: [
-              { id: 'pessoas-1', title: 'Pessoas naturais', duration: '38 min', completed: true, type: 'text' },
-              { id: 'pessoas-2', title: 'Capacidade', duration: '42 min', completed: true, type: 'text' },
-              { id: 'pessoas-3', title: 'Emancipação', duration: '35 min', completed: false, type: 'text' }
-            ]
-          }
-        ]
-      },
-      {
-        id: 'constitucional',
-        name: 'Direito Constitucional',
-        progress: 45,
-        isExpanded: false,
-        modules: [
-          {
-            id: 'teoria',
-            name: 'Teoria das Constituições',
-            progress: 50,
-            isExpanded: false,
-            lessons: [
-              { id: 'teoria-1', title: 'Poder Constituinte', duration: '50 min', completed: true, type: 'text' },
-              { id: 'teoria-2', title: 'Emenda à Constituição', duration: '45 min', completed: false, type: 'text' }
-            ]
-          }
-        ]
-      },
-      {
-        id: 'penal',
-        name: 'Direito Penal',
-        progress: 30,
-        isExpanded: false,
-        modules: [
-          {
-            id: 'teoria-crime',
-            name: 'Teoria Geral do Crime',
-            progress: 30,
-            isExpanded: false,
-            lessons: [
-              { id: 'crime-1', title: 'Conceito de Crime', duration: '55 min', completed: true, type: 'text' },
-              { id: 'crime-2', title: 'Elementos do Crime', duration: '48 min', completed: false, type: 'text' },
-              { id: 'crime-3', title: 'Classificação dos Crimes', duration: '52 min', completed: false, type: 'text' }
-            ]
-          }
-        ]
-      }
-    ],
-    '2fase': [
-      {
-        id: 'trabalho-pratico',
-        name: 'Curso 2ª Fase OAB – Prática de Direito do Trabalho',
-        progress: 33,
-        isExpanded: false,
-        modules: [
-          {
-            id: 'pratica-trabalho',
-            name: 'Aulas Práticas',
-            progress: 33,
-            isExpanded: false,
-            lessons: [
-              { id: 'trabalho-1', title: 'Aula 01 - Introdução ao Direito do Trabalho', duration: '60 min', completed: true, type: 'video' },
-              { id: 'trabalho-2', title: 'Aula 02 - Contrato de Trabalho', duration: '65 min', completed: false, type: 'video' },
-              { id: 'trabalho-3', title: 'Aula 03 - Rescisão Contratual', duration: '70 min', completed: false, type: 'video' }
-            ]
-          }
-        ]
-      },
-      {
-        id: 'civil-pratico',
-        name: 'Curso 2ª Fase OAB – Prática de Direito Civil',
-        progress: 25,
-        isExpanded: false,
-        modules: [
-          {
-            id: 'pratica-civil',
-            name: 'Aulas Práticas',
-            progress: 25,
-            isExpanded: false,
-            lessons: [
-              { id: 'civil-1', title: 'Aula 01 - Petição Inicial Cível', duration: '75 min', completed: true, type: 'video' },
-              { id: 'civil-2', title: 'Aula 02 - Contestação', duration: '68 min', completed: false, type: 'video' },
-              { id: 'civil-3', title: 'Aula 03 - Recursos Cíveis', duration: '72 min', completed: false, type: 'video' },
-              { id: 'civil-4', title: 'Aula 04 - Execução', duration: '80 min', completed: false, type: 'video' }
-            ]
-          }
-        ]
-      }
-    ]
-  });
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [modules, setModules] = useState<any[]>([]);
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [showAchievement, setShowAchievement] = useState(false);
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  const toggleCourse = (courseId: string) => {
-    setCourses(prev => ({
-      ...prev,
-      [activePhase]: prev[activePhase].map(course => 
-        course.id === courseId 
-          ? { ...course, isExpanded: !course.isExpanded }
-          : course
-      )
-    }));
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Buscar dados usando a função autenticada
+      const [categoriesData, coursesData, modulesData, itemsData] = await Promise.all([
+        authenticatedGet('/cursos/categorias'),
+        authenticatedGet('/cursos'),
+        authenticatedGet('/meus-cursos/modulos'),
+        authenticatedGet('/meus-cursos/itens'),
+      ]);
+
+      setCategories(categoriesData);
+      setModules(modulesData);
+      setItems(itemsData);
+
+      // Organizar dados por categoria (1ª e 2ª fase)
+      const organized = organizeCoursesByCategory(coursesData, categoriesData, modulesData, itemsData);
+      setCourses(organized);
+
+    } catch (err: any) {
+      console.error('Erro ao carregar dados:', err);
+
+      if (err.message === 'Usuário não autenticado' || err.message === 'Sessão expirada') {
+        setError('Sessão expirada. Redirecionando para login...');
+        clearAuthToken();
+        setTimeout(() => {
+          if (onNavigateToLogin) {
+            onNavigateToLogin();
+          } else {
+            window.location.href = '/';
+          }
+        }, 2000);
+      } else {
+        setError('Erro ao carregar cursos. Tente novamente.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const toggleModule = (courseId: string, moduleId: string) => {
-    setCourses(prev => ({
-      ...prev,
-      [activePhase]: prev[activePhase].map(course => 
-        course.id === courseId 
-          ? {
-              ...course,
-              modules: course.modules.map(module =>
-                module.id === moduleId
-                  ? { ...module, isExpanded: !module.isExpanded }
-                  : module
-              )
-            }
-          : course
-      )
-    }));
-  };
+  const organizeCoursesByCategory = (coursesData: any[], categoriesData: any[], modulesData: any[], itemsData: any[]) => {
+    return coursesData.map(course => {
+      // Buscar módulos do curso
+      const courseModules = modulesData.filter(m =>
+        course.modulos?.includes(m.id)
+      );
 
-  const toggleLessonCompletion = (courseId: string, moduleId: string, lessonId: string) => {
-    setCourses(prev => {
-      const newCourses = { ...prev };
-      const course = newCourses[activePhase].find(c => c.id === courseId);
-      if (course) {
-        const module = course.modules.find(m => m.id === moduleId);
-        if (module) {
-          const lesson = module.lessons.find(l => l.id === lessonId);
-          if (lesson) {
-            const wasCompleted = lesson.completed;
-            lesson.completed = !lesson.completed;
-            
-            if (!wasCompleted && lesson.completed) {
-              setShowAchievement(true);
-              setTimeout(() => setShowAchievement(false), 5000);
-            }
-          }
-        }
-      }
-      return newCourses;
+      // Para cada módulo, buscar seus itens
+      const modulesWithItems = courseModules.map(module => {
+        const moduleItems = itemsData.filter(item =>
+          item.modulo_id === module.id
+        ).map(item => ({
+          ...item,
+          completed: false // TODO: buscar progresso do usuário
+        }));
+
+        return {
+          ...module,
+          itens: moduleItems,
+          progress: calculateModuleProgress(moduleItems),
+          isExpanded: false
+        };
+      });
+
+      return {
+        id: course.id,
+        nome: course.nome,
+        categoria_id: course.categoria_id,
+        modulos: modulesWithItems,
+        progress: calculateCourseProgress(modulesWithItems),
+        isExpanded: false
+      };
     });
   };
 
-  const handleLessonClick = (courseId: string, moduleId: string, lessonId: string) => {
-    // Chamar callback para carregar conteúdo
-    if (onContentLoad) {
-      onContentLoad(courseId, moduleId, lessonId);
+  const calculateModuleProgress = (items: any[]) => {
+    if (!items || items.length === 0) return 0;
+    const completed = items.filter(i => i.completed).length;
+    return Math.round((completed / items.length) * 100);
+  };
+
+  const calculateCourseProgress = (modules: any[]) => {
+    if (!modules || modules.length === 0) return 0;
+    const totalProgress = modules.reduce((sum, m) => sum + m.progress, 0);
+    return Math.round(totalProgress / modules.length);
+  };
+
+  const toggleCourse = (courseId: string) => {
+    setCourses(prev => prev.map(course =>
+      course.id === courseId
+        ? { ...course, isExpanded: !course.isExpanded }
+        : course
+    ));
+  };
+
+  const toggleModule = (courseId: string, moduleId: string) => {
+    setCourses(prev => prev.map(course =>
+      course.id === courseId
+        ? {
+            ...course,
+            modulos: course.modulos?.map(module =>
+              module.id === moduleId
+                ? { ...module, isExpanded: !module.isExpanded }
+                : module
+            )
+          }
+        : course
+    ));
+  };
+
+  const handleItemClick = (course: Course, module: Module, item: Item) => {
+    if (onNavigateToContent) {
+      onNavigateToContent(course, module, item);
+    } else if (onContentLoad) {
+      onContentLoad(course.id, module.id, item.id);
     }
   };
 
-  const getButtonText = (lesson: Lesson, phase: string) => {
-    if (lesson.completed) {
-      return 'Revisar';
-    }
-    
-    if (phase === '1fase') {
-      return 'Estudar';
-    } else {
-      return 'Assistir';
-    }
-  };
+  const getFilteredCourses = () => {
+    const fase1Category = categories.find(c => c.nome.toLowerCase().includes('1') || c.nome.toLowerCase().includes('primeira'));
+    const fase2Category = categories.find(c => c.nome.toLowerCase().includes('2') || c.nome.toLowerCase().includes('segunda'));
 
-  const getButtonIcon = (lesson: Lesson, phase: string) => {
-    if (lesson.completed) {
-      return <RotateCcw size={12} />;
+    if (activePhase === '1fase' && fase1Category) {
+      return courses.filter(c => c.categoria_id === fase1Category.id);
+    } else if (activePhase === '2fase' && fase2Category) {
+      return courses.filter(c => c.categoria_id === fase2Category.id);
     }
-    
-    if (phase === '1fase') {
-      return <BookOpen size={12} />;
-    } else {
-      return <Play size={12} />;
-    }
+
+    return courses;
   };
 
   const renderCourse = (course: Course) => (
@@ -796,67 +685,58 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad }) => {
           {course.isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </div>
         <div className="info">
-          <div className="name">{course.name}</div>
+          <div className="name">{course.nome}</div>
           <div className="meta">
-            <span>{course.modules.length} assuntos</span>
-            <span>{course.modules.reduce((acc, m) => acc + m.lessons.filter(l => l.completed).length, 0)} concluídas</span>
+            <span>{course.modulos?.length || 0} módulos</span>
+            <span>{course.modulos?.reduce((acc, m) => acc + (m.itens?.filter(i => i.completed).length || 0), 0)} concluídas</span>
           </div>
         </div>
         <div className="progress">
           <div className="percentage">{course.progress}%</div>
         </div>
       </CourseHeader>
-      
+
       <CourseContent isExpanded={course.isExpanded || false}>
         <ProgressBar progress={course.progress} />
-        
+
         <ModuleList>
-          {course.modules.map(module => (
+          {course.modulos?.map(module => (
             <ModuleItem key={module.id} isExpanded={module.isExpanded || false}>
               <ModuleHeader onClick={() => toggleModule(course.id, module.id)}>
                 <div className="icon">
                   {module.isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                 </div>
                 <div className="info">
-                  <div className="name">{module.name}</div>
+                  <div className="name">{module.nome}</div>
                   <div className="meta">
-                    <span>{module.lessons.length} aulas</span>
-                    <span>{module.lessons.filter(l => l.completed).length} concluídas</span>
+                    <span>{module.itens?.length || 0} atividades</span>
+                    <span>{module.itens?.filter(i => i.completed).length || 0} concluídas</span>
                   </div>
                 </div>
                 <div className="progress">
                   <div className="percentage">{module.progress}%</div>
                 </div>
               </ModuleHeader>
-              
-              <LessonList isExpanded={module.isExpanded || false}>
-                {module.lessons.map(lesson => (
-                  <LessonItem key={lesson.id} completed={lesson.completed}>
-                    <div 
-                      className="status-icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleLessonCompletion(course.id, module.id, lesson.id);
-                      }}
-                      title={lesson.completed ? 'Marcar como não concluída' : 'Marcar como concluída'}
-                    >
-                      {lesson.completed ? <CheckCircle size={16} /> : <Clock size={16} />}
+
+              <ItemList isExpanded={module.isExpanded || false}>
+                {module.itens?.map((item: Item) => (
+                  <ItemRow key={item.id} completed={item.completed}>
+                    <div className="status-icon">
+                      {item.completed ? <CheckCircle size={16} /> : <Clock size={16} />}
                     </div>
                     <div className="content">
-                      <div className="title">{lesson.title}</div>
-                      <div className="duration">{lesson.duration}</div>
+                      <div className="title">{item.titulo}</div>
                     </div>
-                    <ActionButton 
-                      completed={lesson.completed}
-                      phase={activePhase}
-                      onClick={() => handleLessonClick(course.id, module.id, lesson.id)}
+                    <ActionButton
+                      completed={item.completed}
+                      onClick={() => handleItemClick(course, module, item)}
                     >
-                      {getButtonIcon(lesson, activePhase)}
-                      {getButtonText(lesson, activePhase)}
+                      {item.completed ? <RotateCcw size={12} /> : <BookOpen size={12} />}
+                      {item.completed ? 'Revisar' : 'Estudar'}
                     </ActionButton>
-                  </LessonItem>
+                  </ItemRow>
                 ))}
-              </LessonList>
+              </ItemList>
             </ModuleItem>
           ))}
         </ModuleList>
@@ -864,22 +744,38 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad }) => {
     </CourseCard>
   );
 
+  if (loading) {
+    return (
+      <CoursesContainer>
+        <Header>
+          <h1>Meus Cursos</h1>
+          <p>Acompanhe seu progresso e continue seus estudos</p>
+        </Header>
+        <LoadingMessage>Carregando cursos...</LoadingMessage>
+      </CoursesContainer>
+    );
+  }
+
+  if (error) {
+    return (
+      <CoursesContainer>
+        <Header>
+          <h1>Meus Cursos</h1>
+          <p>Acompanhe seu progresso e continue seus estudos</p>
+        </Header>
+        <ErrorMessage>{error}</ErrorMessage>
+      </CoursesContainer>
+    );
+  }
+
+  const filteredCourses = getFilteredCourses();
+
   return (
     <CoursesContainer>
       <Header>
         <h1>Meus Cursos</h1>
         <p>Acompanhe seu progresso e continue seus estudos</p>
       </Header>
-
-      {showAchievement && (
-        <AchievementBanner>
-          <Award className="icon" />
-          <div className="content">
-            <div className="title">Parabéns! 🎉</div>
-            <div className="description">Você concluiu mais uma aula. Continue assim!</div>
-          </div>
-        </AchievementBanner>
-      )}
 
       <PhaseTabsContainer>
         <PhaseTab
@@ -897,7 +793,11 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad }) => {
       </PhaseTabsContainer>
 
       <CourseList>
-        {courses[activePhase].map(course => renderCourse(course))}
+        {filteredCourses.length === 0 ? (
+          <LoadingMessage>Nenhum curso disponível nesta categoria</LoadingMessage>
+        ) : (
+          filteredCourses.map(course => renderCourse(course))
+        )}
       </CourseList>
     </CoursesContainer>
   );
