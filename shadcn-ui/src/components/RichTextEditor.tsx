@@ -19,7 +19,8 @@ import {
   ListOrdered,
   Music,
   Type,
-  ChevronsUpDown
+  ChevronsUpDown,
+  Quote
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -324,6 +325,17 @@ export default function RichTextEditor({ content, onChange }: RichTextEditorProp
 
         <button
           type="button"
+          onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          className={`p-2 rounded hover:bg-gray-200 ${
+            editor.isActive('blockquote') ? 'bg-gray-300' : ''
+          }`}
+          title="Caixa de destaque"
+        >
+          <Quote className="w-4 h-4" />
+        </button>
+
+        <button
+          type="button"
           onClick={addImage}
           className="p-2 rounded hover:bg-gray-200"
           title="Inserir imagem"
@@ -380,6 +392,17 @@ export default function RichTextEditor({ content, onChange }: RichTextEditorProp
           height: auto;
           border-radius: 0.375rem;
           margin: 0.5em 0;
+        }
+        .ProseMirror blockquote {
+          border-left: 4px solid #7a1515;
+          background: #f7eeee;
+          padding: 12px 16px;
+          border-radius: 8px;
+          font-style: italic;
+          margin: 0.75em 0;
+        }
+        .ProseMirror blockquote p {
+          margin: 0;
         }
         .ProseMirror iframe {
           max-width: 100%;

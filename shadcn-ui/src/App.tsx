@@ -252,6 +252,32 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
     }
   };
 
+  const handleItemComplete = (itemId: string, completed: boolean) => {
+    if (!currentContent) return;
+
+    // Atualizar o item atual
+    const updatedItem = { ...currentContent.item, completed };
+
+    // Atualizar a lista de itens do módulo
+    const updatedModuleItens = currentContent.module.itens.map((i: any) =>
+      i.id === itemId ? { ...i, completed } : i
+    );
+
+    const updatedModule = {
+      ...currentContent.module,
+      itens: updatedModuleItens
+    };
+
+    setCurrentContent({
+      ...currentContent,
+      item: updatedItem,
+      module: updatedModule
+    });
+
+    // Disparar um evento customizado para que MeusCursos atualize o progresso
+    window.dispatchEvent(new CustomEvent('item-completed', { detail: { itemId, completed } }));
+  };
+
   const handleBackToCourses = () => {
     setCurrentContent(null);
     setActiveSection('courses');
@@ -301,6 +327,7 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
             item={currentContent.item}
             onBack={handleBackToCourses}
             onNavigateToItem={handleNavigateToItem}
+            onItemComplete={handleItemComplete}
           />
         ) : null;
       default:

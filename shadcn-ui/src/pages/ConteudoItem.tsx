@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { ArrowLeft, ChevronRight, ChevronLeft, CheckCircle, Book } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ChevronLeft, CheckCircle, Book, Check } from 'lucide-react';
 
 interface ConteudoItemProps {
   course: {
@@ -17,9 +17,11 @@ interface ConteudoItemProps {
     titulo: string;
     tipo: string;
     conteudo: string;
+    completed?: boolean;
   };
   onBack: () => void;
   onNavigateToItem?: (itemId: string) => void;
+  onItemComplete?: (itemId: string, completed: boolean) => void;
 }
 
 const Container = styled.div`
@@ -293,16 +295,60 @@ const ContentBody = styled.div`
   }
 `;
 
+const ContentTitleRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+
+  @media (max-width: 768px) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+`;
+
 const ContentTitle = styled.h1`
   font-size: 32px;
   font-weight: 700;
   color: ${props => props.theme.colors.text};
-  margin-bottom: 24px;
   line-height: 1.2;
+  margin: 0;
 
   @media (max-width: 768px) {
     font-size: 24px;
-    margin-bottom: 16px;
+  }
+`;
+
+const CompleteButton = styled.button<{ completed: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: 2px solid ${props => props.completed ? props.theme.colors.success : props.theme.colors.accent};
+  background: ${props => props.completed ? props.theme.colors.success : props.theme.colors.accent};
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px ${props => props.completed ? props.theme.colors.success : props.theme.colors.accent}40;
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+
+  @media (max-width: 768px) {
+    padding: 10px 20px;
+    font-size: 13px;
   }
 `;
 
@@ -418,17 +464,51 @@ const ConteudoItem: React.FC<ConteudoItemProps> = ({
   module,
   item,
   onBack,
-  onNavigateToItem
+  onNavigateToItem,
+  onItemComplete
 }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isCompleted, setIsCompleted] = useState(item.completed || false);
 
   useEffect(() => {
+    console.log('ConteudoItem - Dados recebidos:', {
+      course: { id: course.id, nome: course.nome },
+      module: { id: module.id, nome: module.nome, itensCount: module.itens?.length || 0 },
+      item: { id: item.id, titulo: item.titulo, completed: item.completed },
+      moduleItens: module.itens
+    });
+
+    setIsCompleted(item.completed || false);
+
     if (module.itens) {
       const index = module.itens.findIndex(i => i.id === item.id);
       setCurrentIndex(index);
     }
-  }, [item.id, module.itens]);
+  }, [item.id, module.itens, course.id, course.nome, module.id, module.nome, item.titulo, item.completed]);
+
+  const handleToggleComplete = () => {
+    const newCompleted = !isCompleted;
+    setIsCompleted(newCompleted);
+
+    if (onItemComplete) {
+      onItemComplete(item.id, newCompleted);
+    }
+
+    // Salvar no localStorage como fallback
+    const completedItems = JSON.parse(localStorage.getItem('pantheon:completed-items') || '[]');
+    if (newCompleted) {
+      if (!completedItems.includes(item.id)) {
+        completedItems.push(item.id);
+      }
+    } else {
+      const index = completedItems.indexOf(item.id);
+      if (index > -1) {
+        completedItems.splice(index, 1);
+      }
+    }
+    localStorage.setItem('pantheon:completed-items', JSON.stringify(completedItems));
+  };
 
   const handlePrevious = () => {
     if (module.itens && currentIndex > 0 && onNavigateToItem) {
@@ -536,7 +616,25 @@ const ConteudoItem: React.FC<ConteudoItemProps> = ({
         </ContentHeader>
 
         <ContentBody>
-          <ContentTitle>{item.titulo}</ContentTitle>
+          <ContentTitleRow>
+            <ContentTitle>{item.titulo}</ContentTitle>
+            <CompleteButton
+              completed={isCompleted}
+              onClick={handleToggleComplete}
+            >
+              {isCompleted ? (
+                <>
+                  <CheckCircle size={18} />
+                  <span>Concluído</span>
+                </>
+              ) : (
+                <>
+                  <Check size={18} />
+                  <span>Marcar como concluído</span>
+                </>
+              )}
+            </CompleteButton>
+          </ContentTitleRow>
           <ContentHtml dangerouslySetInnerHTML={{ __html: item.conteudo }} />
         </ContentBody>
       </MainContent>
