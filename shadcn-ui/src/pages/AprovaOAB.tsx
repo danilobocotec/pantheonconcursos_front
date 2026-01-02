@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   Trophy,
   ChevronRight,
@@ -168,7 +168,7 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
             </p>
           </div>
 
-        <div className="max-w-5xl mx-auto space-y-8">
+          <div className="max-w-5xl mx-auto space-y-8">
             <div className="bg-white rounded-2xl p-8 shadow-xl flex flex-col md:flex-row gap-8 items-center">
               <div className="flex-shrink-0">
                 <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center shadow-lg">
@@ -317,10 +317,7 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
       <section className="py-20 bg-gray-50">
         <div className="container mx-auto px-4">
           <div className="text-center mb-6">
-            <h2
-              className="text-3xl md:text-4xl font-bold mb-2"
-              style={{ color: "#7c1d1d" }}
-            >
+            <h2 className="text-3xl md:text-4xl font-bold mb-2" style={{ color: "#7c1d1d" }}>
               Nunca mais compre outro curso para a OAB
             </h2>
             <p className="text-xl text-gray-900 font-semibold">
@@ -332,10 +329,12 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
             <div className="bg-white rounded-3xl p-8 border-2 border-gray-200 shadow-lg hover:shadow-xl transition-all relative">
               <div className="text-center mb-6">
                 <h3 className="text-2xl font-bold text-gray-900 mb-6">OAB 1ª Fase Anual</h3>
+
                 <div className="mb-4">
                   <span className="text-gray-600 line-through text-base">De R$ 453,70 por</span>
                   <span className="ml-2 text-red-600 font-bold text-sm">30% OFF</span>
                 </div>
+
                 <div className="mb-2">
                   <span className="text-base text-gray-700">12x </span>
                   <span className="text-5xl font-bold text-gray-900">34,90</span>
@@ -343,7 +342,7 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
                 <p className="text-gray-600 text-sm">ou 349,00 à vista no PIX</p>
               </div>
 
-              <button className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-full mb-6 transition-colors">
+              <button onClick={() => onNavigate?.("checkout:oab-1-fase-anual")} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-full mb-6 transition-colors">
                 COMECE AGORA
               </button>
 
@@ -380,10 +379,12 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
 
               <div className="text-center mb-6">
                 <h3 className="text-2xl font-bold text-white mb-6">OAB 1ª Fase Vitalício</h3>
+
                 <div className="mb-4">
                   <span className="text-orange-200 line-through text-base">De R$ 550,62 por</span>
                   <span className="ml-2 text-yellow-300 font-bold text-sm">38% OFF</span>
                 </div>
+
                 <div className="mb-2">
                   <span className="text-base text-white">12x </span>
                   <span className="text-5xl font-bold text-white">39,90</span>
@@ -391,7 +392,7 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
                 <p className="text-orange-200 text-sm">ou 399,00 à vista no PIX</p>
               </div>
 
-              <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-full mb-6 transition-colors shadow-lg">
+              <button onClick={() => onNavigate?.("checkout:oab-1-fase-vitalicio")} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-full mb-6 transition-colors shadow-lg">
                 COMECE AGORA
               </button>
 
@@ -430,10 +431,12 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
             <div className="bg-white rounded-3xl p-8 border-2 border-gray-200 shadow-lg hover:shadow-xl transition-all relative">
               <div className="text-center mb-6">
                 <h3 className="text-2xl font-bold text-gray-900 mb-6">OAB 1ª e 2ª Fase Anual</h3>
+
                 <div className="mb-4">
                   <span className="text-gray-600 line-through text-base">De R$ 908,65 por</span>
                   <span className="ml-2 text-red-600 font-bold text-sm">35% OFF</span>
                 </div>
+
                 <div className="mb-2">
                   <span className="text-base text-gray-700">12x </span>
                   <span className="text-5xl font-bold text-gray-900">59,90</span>
@@ -441,7 +444,7 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
                 <p className="text-gray-600 text-sm">ou 599,00 à vista no PIX</p>
               </div>
 
-              <button className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-full mb-6 transition-colors">
+              <button onClick={() => onNavigate?.("checkout:oab-1-fase-2-fase-anual")} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-full mb-6 transition-colors">
                 COMECE AGORA
               </button>
 
@@ -549,3 +552,4 @@ const AprovaOAB: React.FC<AprovaOABProps> = ({ onNavigate }) => {
 };
 
 export default AprovaOAB;
+

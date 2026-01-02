@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import { buildApiUrl } from "@/lib/api";
 import { Eye, EyeOff, X } from "lucide-react";
 
@@ -114,10 +114,10 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
           Teste a nossa plataforma
         </button>
         <button
-          onClick={() => onNavigate?.("admin-dashboard")}
+          onClick={() => onNavigate?.("aprova-oab")}
           className="w-full border border-gray-200 text-gray-800 px-6 py-3 rounded-lg font-semibold hover:bg-gray-50"
         >
-          Admin
+          Aprova OAB
         </button>
         <button
           onClick={() => setLoginModalOpen(true)}
@@ -228,3 +228,5 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
 };
 
 export default PantheonConcursos;
+
+
