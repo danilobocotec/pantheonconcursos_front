@@ -1,13 +1,22 @@
-import React from 'react';
+﻿import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import Home from './pages/Home.tsx';
 import IndexPage from './pages/Index.tsx';
 import AdminDashboard from './pages/AdminDashboard.tsx';
 import AprovaOAB from './pages/AprovaOAB.tsx';
+import CheckoutPage from './pages/Checkout.tsx';
+import CheckoutSuccess from './pages/CheckoutSuccess.tsx';
 import './index.css';
 
-type PageKey = 'home' | 'index' | 'admin' | 'admin-dashboard' | 'aprova-oab';
+type PageKey =
+  | 'home'
+  | 'index'
+  | 'admin'
+  | 'admin-dashboard'
+  | 'aprova-oab'
+  | 'checkout'
+  | 'checkout-success';
 
 const adminSectionMap: Record<string, string> = {
   'visao-geral': 'dashboard',
@@ -36,12 +45,14 @@ const hasAdminPermission = () => {
 
 const getInitialPage = (): PageKey => {
   if (typeof window === 'undefined') return 'home';
-  if (!isAuthenticated()) return 'home';
   const path = window.location.pathname.toLowerCase();
+  if (path.startsWith('/aprova-oab')) return 'aprova-oab';
+  if (path.startsWith('/checkout/success')) return 'checkout-success';
+  if (path.startsWith('/checkout')) return 'checkout';
+  if (!isAuthenticated()) return 'home';
   if (path.startsWith('/admin')) {
     return hasAdminPermission() ? 'admin-dashboard' : 'home';
   }
-  if (path.startsWith('/aprova-oab')) return 'aprova-oab';
   if (path.startsWith('/index')) return 'index';
   return 'home';
 };
@@ -52,6 +63,10 @@ const getPathForPage = (page: PageKey) => {
       return '/admin';
     case 'aprova-oab':
       return '/aprova-oab';
+    case 'checkout':
+      return '/checkout';
+    case 'checkout-success':
+      return '/checkout/success';
     case 'index':
       return '/index';
     case 'home':
@@ -63,6 +78,7 @@ const getPathForPage = (page: PageKey) => {
 const RootApp = () => {
   const [currentPage, setCurrentPage] = React.useState<PageKey>(getInitialPage);
   const [adminSection, setAdminSection] = React.useState<string>('dashboard');
+  const [checkoutPlan, setCheckoutPlan] = React.useState<string>('oab-1-fase-vitalicio');
 
   React.useEffect(() => {
     const handlePopState = () => {
@@ -95,6 +111,24 @@ const RootApp = () => {
   };
 
   const handleNavigate = (target: string) => {
+    if (target.startsWith('checkout:')) {
+      const planKey = target.replace('checkout:', '').trim();
+      if (planKey) {
+        setCheckoutPlan(planKey);
+      }
+      navigateToPage('checkout');
+      return;
+    }
+
+    if (target === 'checkout') {
+      navigateToPage('checkout');
+      return;
+    }
+
+    if (target === 'checkout-success') {
+      navigateToPage('checkout-success');
+      return;
+    }
     if (target === 'home') {
       navigateToPage('home');
       return;
@@ -117,7 +151,6 @@ const RootApp = () => {
     }
 
     if (target === 'aprova-oab') {
-      if (!ensureAuthenticated()) return;
       navigateToPage('aprova-oab');
       return;
     }
@@ -152,6 +185,14 @@ const RootApp = () => {
     return <IndexPage />;
   }
 
+  if (currentPage === 'checkout') {
+    return <CheckoutPage onNavigate={handleNavigate} planKey={checkoutPlan} />;
+  }
+
+  if (currentPage === 'checkout-success') {
+    return <CheckoutSuccess onNavigate={handleNavigate} />;
+  }
+
   if (currentPage === 'aprova-oab') {
     return <AprovaOAB onNavigate={handleNavigate} />;
   }
@@ -160,3 +201,5 @@ const RootApp = () => {
 };
 
 createRoot(document.getElementById('root')!).render(<RootApp />);
+
+
