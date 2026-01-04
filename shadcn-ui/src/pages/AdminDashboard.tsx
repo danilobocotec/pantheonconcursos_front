@@ -150,6 +150,7 @@ const COURSE_MODULES_URL = buildApiUrl("/meus-cursos/modulos");
 const COURSE_ITEMS_URL = buildApiUrl("/meus-cursos/itens");
 const QUESTIONS_API_URL = buildApiUrl("/questoes");
 const QUESTION_FILTERS_API_URL = buildApiUrl("/questoes/filtros");
+const QUESTIONS_COUNT_API_URL = buildApiUrl("/questoes/contador");
 
 const AdminDashboard = ({ onNavigate }: AdminDashboardProps) => {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
@@ -254,29 +255,74 @@ const AdminDashboard = ({ onNavigate }: AdminDashboardProps) => {
   );
 };
 
-const DashboardSection = () => (
-  <section className="space-y-6">
-    <div>
-      <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
-      <p className="text-gray-600">Resumo rapido da plataforma</p>
-    </div>
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {[
-        { label: "Alunos ativos", value: "10.234" },
-        { label: "Receita mensal", value: "R$ 482K" },
-        { label: "Taxa de aprovacao", value: "87%" },
-      ].map((card) => (
-        <div
-          key={card.label}
-          className="bg-white border border-gray-200 rounded-xl p-5"
-        >
-          <p className="text-sm text-gray-500">{card.label}</p>
-          <p className="text-3xl font-bold text-gray-900 mt-2">{card.value}</p>
+const DashboardSection = () => {
+  const [questionsCount, setQuestionsCount] = React.useState<number | null>(
+    null
+  );
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let mounted = true;
+
+    const loadQuestionsCount = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(QUESTIONS_COUNT_API_URL, {
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(
+            message || `Falha ao carregar contador (${response.status})`
+          );
+        }
+        const payload = await response.json();
+        const normalizedCount = normalizeQuestionsCount(payload);
+        if (mounted) setQuestionsCount(normalizedCount);
+      } catch (requestError) {
+        if (!mounted) return;
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Erro ao carregar contador."
+        );
+        setQuestionsCount(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    void loadQuestionsCount();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return (
+    <section className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+        <p className="text-gray-600">Resumo rapido da plataforma</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-5">
+          <p className="text-sm text-gray-500">Quantidade de questoes</p>
+          <p className="text-3xl font-bold text-gray-900 mt-2">
+            {loading
+              ? "Carregando..."
+              : error
+              ? "Erro ao carregar"
+              : questionsCount?.toLocaleString("pt-BR") ?? "0"}
+          </p>
+          {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
         </div>
-      ))}
-    </div>
-  </section>
-);
+      </div>
+    </section>
+  );
+};
 
 const UsersSection = () => (
   <section className="space-y-4">
@@ -3782,6 +3828,36 @@ const normalizeQuestionCollection = (payload: unknown): AdminQuestion[] => {
   }
 
   return [];
+};
+
+const normalizeQuestionsCount = (payload: unknown) => {
+  if (typeof payload === "number" && Number.isFinite(payload)) {
+    return Math.max(0, Math.trunc(payload));
+  }
+  if (isRecord(payload)) {
+    const candidates = [
+      "count",
+      "total",
+      "quantidade",
+      "total_questoes",
+      "totalQuestoes",
+      "questoes",
+      "contador",
+    ];
+    for (const key of candidates) {
+      const value = payload[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return Math.max(0, Math.trunc(value));
+      }
+      if (typeof value === "string") {
+        const parsed = Number(value);
+        if (!Number.isNaN(parsed)) {
+          return Math.max(0, Math.trunc(parsed));
+        }
+      }
+    }
+  }
+  return 0;
 };
 
 export default AdminDashboard;
