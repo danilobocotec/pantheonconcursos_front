@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { ArrowLeft, ChevronRight, ChevronLeft, CheckCircle, Book, Check } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ChevronLeft, CheckCircle, Book, Check, ChevronDown } from 'lucide-react';
 
 interface ConteudoItemProps {
   course: {
@@ -18,6 +18,8 @@ interface ConteudoItemProps {
     tipo: string;
     conteudo: string;
     completed?: boolean;
+    audio_url?: string;
+    audioUrl?: string;
   };
   onBack: () => void;
   onNavigateToItem?: (itemId: string) => void;
@@ -28,18 +30,19 @@ const Container = styled.div`
   display: flex;
   height: 100vh;
   background: ${props => props.theme.colors.background};
+  flex-direction: row-reverse;
 `;
 
 const Sidebar = styled.div<{ isOpen: boolean }>`
   width: ${props => props.isOpen ? '350px' : '0'};
   background: ${props => props.theme.colors.surface};
-  border-right: 1px solid ${props => props.theme.colors.border};
+  border-left: 1px solid ${props => props.theme.colors.border};
   overflow-y: auto;
   transition: width 0.3s ease;
 
   @media (max-width: 1024px) {
     position: fixed;
-    left: 0;
+    right: 0;
     top: 0;
     height: 100vh;
     z-index: 1000;
@@ -49,35 +52,6 @@ const Sidebar = styled.div<{ isOpen: boolean }>`
 
 const SidebarContent = styled.div`
   padding: 24px;
-`;
-
-const SidebarHeader = styled.div`
-  margin-bottom: 24px;
-
-  h2 {
-    font-size: 18px;
-    font-weight: 700;
-    color: ${props => props.theme.colors.text};
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  p {
-    font-size: 14px;
-    color: ${props => props.theme.colors.textSecondary};
-  }
-`;
-
-const ModuleProgress = styled.div`
-  margin-bottom: 16px;
-
-  .label {
-    font-size: 12px;
-    color: ${props => props.theme.colors.textSecondary};
-    margin-bottom: 8px;
-  }
 `;
 
 const ProgressBar = styled.div<{ progress: number }>`
@@ -97,43 +71,125 @@ const ProgressBar = styled.div<{ progress: number }>`
   }
 `;
 
-const ActivitiesList = styled.div`
+const SidebarTop = styled.div`
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+
+  h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: ${props => props.theme.colors.text};
+  }
 `;
 
-const ActivityItem = styled.div<{ isActive: boolean; completed: boolean }>`
-  padding: 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  background: ${props => props.isActive ? `${props.theme.colors.accent}15` : 'transparent'};
-  border: 1px solid ${props => props.isActive ? props.theme.colors.accent : props.theme.colors.border};
+const SidebarPillButton = styled.button`
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: none;
+  background: #7b1b1b;
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  box-shadow: 0 6px 14px rgba(123, 27, 27, 0.25);
+  margin-bottom: 16px;
+`;
 
-  &:hover {
-    background: ${props => props.theme.colors.accent}10;
-    border-color: ${props => props.theme.colors.accent};
+const ModuleNavCard = styled.div`
+  border-top: 1px solid ${props => props.theme.colors.border};
+  padding: 12px 0;
+`;
+
+const ModuleNavHeader = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: transparent;
+  border: none;
+  padding: 8px 0;
+  cursor: pointer;
+  text-align: left;
+
+  .module-info {
+    display: flex;
+    gap: 10px;
   }
 
-  .header {
-    display: flex;
+  .module-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: ${props => props.theme.colors.text};
+    text-transform: uppercase;
+    line-height: 1.3;
+  }
+
+  .module-meta {
+    font-size: 12px;
+    color: ${props => props.theme.colors.textSecondary};
+    margin-top: 4px;
+  }
+`;
+
+const ModuleNavList = styled.div<{ expanded: boolean }>`
+  display: ${props => (props.expanded ? 'flex' : 'none')};
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 0 0 0;
+`;
+
+const ModuleNavItem = styled.div<{ isActive: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: ${props => (props.isActive ? '#f6eded' : 'transparent')};
+  border: 1px solid ${props => (props.isActive ? '#e6caca' : 'transparent')};
+  cursor: pointer;
+
+  .nav-title {
+    flex: 1;
+    font-size: 13px;
+    color: ${props => props.theme.colors.text};
+    line-height: 1.3;
+  }
+
+  .nav-actions {
+    display: inline-flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 4px;
-
-    .icon {
-      color: ${props => props.completed ? props.theme.colors.success : props.theme.colors.textSecondary};
-      flex-shrink: 0;
-    }
-
-    .title {
-      font-size: 14px;
-      font-weight: ${props => props.isActive ? '600' : '500'};
-      color: ${props => props.theme.colors.text};
-      line-height: 1.3;
-    }
   }
+`;
+
+const StatusBadge = styled.span<{ completed: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  border-radius: 6px;
+  background: ${props => (props.completed ? '#e2f6ea' : '#f0f0f0')};
+  color: ${props => (props.completed ? '#1f9d55' : '#999')};
+  font-size: 12px;
+`;
+
+const NavActionButton = styled.button<{ completed: boolean }>`
+  border: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  background: ${props => (props.completed ? '#ffe8cc' : '#7b1b1b')};
+  color: ${props => (props.completed ? '#d97706' : '#fff')};
 `;
 
 const MainContent = styled.div`
@@ -357,6 +413,33 @@ const ContentHtml = styled.div`
   line-height: 1.8;
   color: ${props => props.theme.colors.text};
 
+  .audiobook-player {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    padding: 12px 16px;
+    background: #f2f2f2;
+    border-radius: 9999px;
+    border: 1px solid ${props => props.theme.colors.border};
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+  }
+
+  .audiobook-player audio {
+    width: 260px;
+    height: 32px;
+  }
+
+  @media (max-width: 768px) {
+    .audiobook-player {
+      padding: 10px 12px;
+    }
+
+    .audiobook-player audio {
+      width: 100%;
+    }
+  }
+
   p {
     margin-bottom: 1em;
   }
@@ -433,10 +516,25 @@ const ContentHtml = styled.div`
 
   blockquote {
     border-left: 4px solid ${props => props.theme.colors.accent};
-    padding-left: 16px;
+    padding: 16px 20px;
     margin: 1.5em 0;
     color: ${props => props.theme.colors.textSecondary};
     font-style: italic;
+    background: #f6eded;
+    border-radius: 12px;
+  }
+
+  mark {
+    background: rgba(123, 27, 27, 0.45);
+    color: inherit;
+    padding: 2px 4px;
+    border-radius: 6px;
+  }
+
+  span[style*="background"] {
+    background-color: rgba(123, 27, 27, 0.45) !important;
+    padding: 2px 4px;
+    border-radius: 6px;
   }
 
   @media (max-width: 768px) {
@@ -470,6 +568,40 @@ const ConteudoItem: React.FC<ConteudoItemProps> = ({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isCompleted, setIsCompleted] = useState(item.completed || false);
+  const [moduleNavOpen, setModuleNavOpen] = useState(true);
+
+  const getAudioSource = () => {
+    const directUrl = item.audio_url || item.audioUrl;
+    if (directUrl) return directUrl;
+
+    const conteudo = item.conteudo || '';
+    const urlMatch = conteudo.match(
+      /(https?:\/\/[^\s"'<>]+\.(?:mp3|mp4|wav|ogg)(?:\?[^\s"'<>]+)?)/i
+    );
+    if (urlMatch?.[1]) return urlMatch[1];
+
+    const trimmed = conteudo.trim();
+    if (!trimmed || trimmed.includes('<')) return '';
+    if (/^(https?:)?\/\//i.test(trimmed)) return trimmed;
+    if (/\.(mp3|mp4|wav|ogg)$/i.test(trimmed)) return trimmed;
+
+    return '';
+  };
+
+  const audioSrc = getAudioSource();
+  const contentIsHtml = item.conteudo?.includes('<');
+  const contentHtml = contentIsHtml ? item.conteudo : '';
+  const contentText =
+    !contentIsHtml && item.conteudo && item.tipo !== 'audio'
+      ? item.conteudo
+      : '';
+  const contentHtmlWithAudiobook =
+    contentHtml && audioSrc
+      ? contentHtml.replace(
+          /(Audiobook|Ouvir áudio|Ouvir audio)/gi,
+          `<span class="audiobook-player"><audio controls controlsList="nodownload noplaybackrate" src="${audioSrc}"></audio></span>`
+        )
+      : contentHtml;
 
   useEffect(() => {
     console.log('ConteudoItem - Dados recebidos:', {
@@ -534,45 +666,69 @@ const ConteudoItem: React.FC<ConteudoItemProps> = ({
 
       <Sidebar isOpen={sidebarOpen}>
         <SidebarContent>
-          <SidebarHeader>
-            <h2>
-              <Book size={20} />
-              {module.nome}
-            </h2>
-            <p>{course.nome}</p>
-          </SidebarHeader>
+          <SidebarTop>
+            <h2>{course.nome}</h2>
+          </SidebarTop>
 
-          <ModuleProgress>
-            <div className="label">
-              {module.itens?.filter(i => i.completed).length || 0}/{module.itens?.length || 0} atividades concluídas
-            </div>
-            <ProgressBar progress={calculateProgress()} />
-          </ModuleProgress>
+          <SidebarPillButton type="button">
+            <Book size={14} />
+            Aulas
+          </SidebarPillButton>
 
-          <ActivitiesList>
-            {module.itens?.map((activityItem, index) => (
-              <ActivityItem
-                key={activityItem.id}
-                isActive={activityItem.id === item.id}
-                completed={activityItem.completed}
-                onClick={() => {
-                  if (onNavigateToItem) {
-                    onNavigateToItem(activityItem.id);
-                  }
-                  if (window.innerWidth <= 1024) {
-                    setSidebarOpen(false);
-                  }
-                }}
-              >
-                <div className="header">
-                  <div className="icon">
-                    {activityItem.completed ? <CheckCircle size={16} /> : <span>{index + 1}</span>}
+          <ModuleNavCard>
+            <ModuleNavHeader type="button" onClick={() => setModuleNavOpen(!moduleNavOpen)}>
+              <div className="module-info">
+                <Book size={16} />
+                <div>
+                  <div className="module-title">{module.nome}</div>
+                  <div className="module-meta">
+                    {module.itens?.filter(i => i.completed).length || 0}/{module.itens?.length || 0} atividades
                   </div>
-                  <div className="title">{activityItem.titulo}</div>
                 </div>
-              </ActivityItem>
-            ))}
-          </ActivitiesList>
+              </div>
+              <ChevronDown size={16} />
+            </ModuleNavHeader>
+            <ProgressBar progress={calculateProgress()} />
+            <ModuleNavList expanded={moduleNavOpen}>
+              {module.itens?.map((activityItem) => (
+                <ModuleNavItem
+                  key={activityItem.id}
+                  isActive={activityItem.id === item.id}
+                  onClick={() => {
+                    if (onNavigateToItem) {
+                      onNavigateToItem(activityItem.id);
+                    }
+                    if (window.innerWidth <= 1024) {
+                      setSidebarOpen(false);
+                    }
+                  }}
+                >
+                  <Book size={16} />
+                  <div className="nav-title">{activityItem.titulo}</div>
+                  <div className="nav-actions">
+                    <StatusBadge completed={activityItem.completed}>
+                      {activityItem.completed ? <CheckCircle size={14} /> : null}
+                    </StatusBadge>
+                    <NavActionButton
+                      type="button"
+                      completed={activityItem.completed}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (onNavigateToItem) {
+                          onNavigateToItem(activityItem.id);
+                        }
+                        if (window.innerWidth <= 1024) {
+                          setSidebarOpen(false);
+                        }
+                      }}
+                    >
+                      {activityItem.completed ? 'Revisar' : 'Estudar'}
+                    </NavActionButton>
+                  </div>
+                </ModuleNavItem>
+              ))}
+            </ModuleNavList>
+          </ModuleNavCard>
         </SidebarContent>
       </Sidebar>
 
@@ -635,7 +791,10 @@ const ConteudoItem: React.FC<ConteudoItemProps> = ({
               )}
             </CompleteButton>
           </ContentTitleRow>
-          <ContentHtml dangerouslySetInnerHTML={{ __html: item.conteudo }} />
+          {contentHtmlWithAudiobook && (
+            <ContentHtml dangerouslySetInnerHTML={{ __html: contentHtmlWithAudiobook }} />
+          )}
+          {contentText && <ContentHtml>{contentText}</ContentHtml>}
         </ContentBody>
       </MainContent>
     </Container>

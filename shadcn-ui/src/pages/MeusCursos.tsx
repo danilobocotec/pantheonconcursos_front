@@ -186,7 +186,7 @@ const CourseHeader = styled.div`
     min-width: 0;
 
     .name {
-      font-weight: 600;
+      font-weight: 400;
       color: ${props => props.theme.colors.text};
       margin-bottom: 4px;
       line-height: 1.3;
@@ -798,17 +798,34 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
       totalCourses: courses.length
     });
 
-    if (!phaseCategory) {
-      console.log('Categoria da fase nao encontrada.');
-      return [];
-    }
-
-    const filtered = courses.filter(c =>
+    const filtered = phaseCategory ? courses.filter(c =>
       c.categoria_id === phaseCategory.id ||
       c.categoria_id === String(phaseCategory.id)
-    );
-    console.log(`Cursos filtrados (${activePhase}):`, filtered.length);
-    return filtered;
+    ) : [];
+    if (filtered.length > 0) {
+      console.log(`Cursos filtrados (${activePhase}):`, filtered.length);
+      return filtered;
+    }
+
+    const fallbackByName = courses.filter(curso => {
+      const categoryName =
+        categories.find(c => String(c.id) === String(curso.categoria_id))?.nome || '';
+      const normalizedCourse = normalizeLabel(curso.nome || '');
+      const normalizedCategory = normalizeLabel(categoryName);
+      return fallbackTerms.required.every(term =>
+        normalizedCourse.includes(term) || normalizedCategory.includes(term)
+      ) && fallbackTerms.anyOf.some(term =>
+        normalizedCourse.includes(term) || normalizedCategory.includes(term)
+      );
+    });
+
+    if (fallbackByName.length > 0) {
+      console.log(`Cursos filtrados por nome (${activePhase}):`, fallbackByName.length);
+      return fallbackByName;
+    }
+
+    console.log('Categoria da fase nao encontrada. Exibindo todos os cursos.');
+    return courses;
   };
 
   const renderCourse = (course: Course) => {
