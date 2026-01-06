@@ -622,6 +622,11 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
     } catch (err: any) {
       console.error('Erro ao carregar dados:', err);
 
+      if (err.message === 'Bloqueadousodiario') {
+        setError(null);
+        return;
+      }
+
       if (err.message === 'Usuário não autenticado' || err.message === 'Sessão expirada') {
         setError('Sessão expirada. Redirecionando para login...');
         clearAuthToken();

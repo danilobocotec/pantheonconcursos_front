@@ -24,11 +24,15 @@ export const PantheonConcursos = ({
 }: PantheonConcursosProps) => {
   const [loginModalOpen, setLoginModalOpen] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [rememberMe, setRememberMe] = React.useState(false);
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [fullName, setFullName] = React.useState("");
   const [loginLoading, setLoginLoading] = React.useState(false);
   const [loginError, setLoginError] = React.useState("");
+  const [isRegistering, setIsRegistering] = React.useState(false);
 
   const persistSession = React.useCallback(
     (data: any, emailValue: string) => {
@@ -85,6 +89,36 @@ export const PantheonConcursos = ({
         throw new Error("Informe e-mail e senha.");
       }
 
+      if (isRegistering) {
+        if (!fullName.trim()) {
+          throw new Error("Informe seu nome completo.");
+        }
+        if (password !== confirmPassword) {
+          throw new Error("As senhas nao conferem.");
+        }
+
+        const registerResponse = await fetch(buildApiUrl("/auth/register"), {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            full_name: fullName,
+            email,
+            password,
+            confirm: confirmPassword,
+          }),
+        });
+
+        if (!registerResponse.ok) {
+          const message = await registerResponse.text();
+          throw new Error(
+            message || "Nao foi possivel criar a conta. Tente novamente."
+          );
+        }
+      }
+
       const response = await fetch(buildApiUrl("/auth/login"), {
         method: "POST",
         headers: {
@@ -107,7 +141,10 @@ export const PantheonConcursos = ({
       setLoginModalOpen(false);
       setEmail("");
       setPassword("");
+      setConfirmPassword("");
+      setFullName("");
       setRememberMe(false);
+      setIsRegistering(false);
     } catch (error) {
       const message =
         error instanceof Error
@@ -734,7 +771,11 @@ export const PantheonConcursos = ({
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full relative animate-in fade-in zoom-in duration-200">
             <button
-              onClick={() => setLoginModalOpen(false)}
+              onClick={() => {
+                setLoginModalOpen(false);
+                setIsRegistering(false);
+                setLoginError("");
+              }}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
               aria-label="Fechar"
             >
@@ -744,9 +785,13 @@ export const PantheonConcursos = ({
             <div className="p-8">
               <div className="mb-6">
                 <h2 className="text-2xl font-semibold text-gray-900 leading-tight">
-                  Faca login com sua conta
+                  {isRegistering
+                    ? "Faca sua conta Pantheon e"
+                    : "Faca login com sua conta"}
                 </h2>
-                <p className="text-2xl font-semibold text-red-700">Pantheon</p>
+                <p className="text-2xl font-semibold text-red-700">
+                  {isRegistering ? "seja Aprovado!" : "Pantheon"}
+                </p>
               </div>
 
               <div className="space-y-3 mb-6">
@@ -806,11 +851,26 @@ export const PantheonConcursos = ({
 
               <div className="flex items-center gap-3 text-xs text-gray-500 mb-4">
                 <span className="h-px bg-gray-200 flex-1" />
-                Ou entre com e-mail
+                {isRegistering ? "Ou registre com e-mail" : "Ou entre com e-mail"}
                 <span className="h-px bg-gray-200 flex-1" />
               </div>
 
               <form className="space-y-4" onSubmit={handleAuth}>
+                {isRegistering && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Nome completo:
+                    </label>
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                      disabled={loginLoading}
+                      autoComplete="name"
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-900 mb-2">
                     Email:
@@ -853,25 +913,59 @@ export const PantheonConcursos = ({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-sm">
-                  <label className="flex items-center gap-2 text-gray-700">
-                    <input
-                      type="checkbox"
-                      id="rememberMe"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-600"
-                      disabled={loginLoading}
-                    />
-                    Lembrar senha
-                  </label>
-                  <button
-                    type="button"
-                    className="text-gray-500 hover:text-gray-700 underline underline-offset-2"
-                  >
-                    Esqueci minha senha
-                  </button>
-                </div>
+                {isRegistering && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-2">
+                      Confirme sua senha:
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent pr-12"
+                        disabled={loginLoading}
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowConfirmPassword(!showConfirmPassword)
+                        }
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-70"
+                        disabled={loginLoading}
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="w-5 h-5" />
+                        ) : (
+                          <Eye className="w-5 h-5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {!isRegistering && (
+                  <div className="flex items-center justify-between text-sm">
+                    <label className="flex items-center gap-2 text-gray-700">
+                      <input
+                        type="checkbox"
+                        id="rememberMe"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-600"
+                        disabled={loginLoading}
+                      />
+                      Lembrar senha
+                    </label>
+                    <button
+                      type="button"
+                      className="text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                    >
+                      Esqueci minha senha
+                    </button>
+                  </div>
+                )}
 
                 {loginError && (
                   <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -880,12 +974,16 @@ export const PantheonConcursos = ({
                 )}
 
                 <div className="text-sm text-gray-700">
-                  Nao tem conta?{" "}
+                  {isRegistering ? "Ja tem conta?" : "Nao tem conta?"}{" "}
                   <button
                     type="button"
                     className="text-blue-600 font-semibold hover:text-blue-700"
+                    onClick={() => {
+                      setIsRegistering(!isRegistering);
+                      setLoginError("");
+                    }}
                   >
-                    Criar uma Conta
+                    {isRegistering ? "Fazer login" : "Criar uma Conta"}
                   </button>
                 </div>
 
