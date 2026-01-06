@@ -38,7 +38,7 @@ export const CheckoutSuccess = ({ onNavigate }: CheckoutSuccessProps) => {
             </button>
           </nav>
           <button
-            onClick={() => onNavigate?.("home")}
+            onClick={() => onNavigate?.("home:login")}
             className="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-6 py-2 rounded-full"
           >
             Entrar

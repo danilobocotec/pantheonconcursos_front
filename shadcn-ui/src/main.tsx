@@ -32,10 +32,17 @@ const adminSectionMap: Record<string, string> = {
 
 const ADMIN_PERMISSION_KEY = 'pantheon:isAdmin';
 const TOKEN_KEY = 'pantheon:token';
+const LAST_PAGE_KEY = 'pantheon:lastPage';
+const LAST_SECTION_KEY = 'pantheon:lastAdminSection';
 
 const isAuthenticated = () => {
   if (typeof window === 'undefined') return false;
   return Boolean(window.localStorage.getItem(TOKEN_KEY));
+};
+
+const getStoredValue = (key: string) => {
+  if (typeof window === 'undefined') return null;
+  return window.localStorage.getItem(key);
 };
 
 const hasAdminPermission = () => {
@@ -54,6 +61,13 @@ const getInitialPage = (): PageKey => {
     return hasAdminPermission() ? 'admin-dashboard' : 'home';
   }
   if (path.startsWith('/index')) return 'index';
+  const storedPage = getStoredValue(LAST_PAGE_KEY) as PageKey | null;
+  if (storedPage) {
+    if (storedPage === 'admin-dashboard' && !hasAdminPermission()) {
+      return 'home';
+    }
+    return storedPage;
+  }
   return 'home';
 };
 
@@ -77,8 +91,12 @@ const getPathForPage = (page: PageKey) => {
 
 const RootApp = () => {
   const [currentPage, setCurrentPage] = React.useState<PageKey>(getInitialPage);
-  const [adminSection, setAdminSection] = React.useState<string>('dashboard');
+  const [adminSection, setAdminSection] = React.useState<string>(() => {
+    const stored = getStoredValue(LAST_SECTION_KEY);
+    return stored || 'dashboard';
+  });
   const [checkoutPlan, setCheckoutPlan] = React.useState<string>('oab-1-fase-vitalicio');
+  const [homeLoginOpen, setHomeLoginOpen] = React.useState(false);
 
   React.useEffect(() => {
     const handlePopState = () => {
@@ -91,6 +109,7 @@ const RootApp = () => {
   const navigateToPage = (page: PageKey) => {
     setCurrentPage(page);
     if (typeof window !== 'undefined') {
+      window.localStorage.setItem(LAST_PAGE_KEY, page);
       const nextPath = getPathForPage(page);
       if (window.location.pathname !== nextPath) {
         window.history.pushState({}, '', nextPath);
@@ -107,6 +126,10 @@ const RootApp = () => {
 
   const goToAdmin = (section: string = 'dashboard') => {
     setAdminSection(section);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(LAST_SECTION_KEY, section);
+      window.localStorage.setItem(LAST_PAGE_KEY, 'admin');
+    }
     setCurrentPage('admin');
   };
 
@@ -130,6 +153,12 @@ const RootApp = () => {
       return;
     }
     if (target === 'home') {
+      setHomeLoginOpen(false);
+      navigateToPage('home');
+      return;
+    }
+    if (target === 'home:login') {
+      setHomeLoginOpen(true);
       navigateToPage('home');
       return;
     }
@@ -197,7 +226,13 @@ const RootApp = () => {
     return <AprovaOAB onNavigate={handleNavigate} />;
   }
 
-  return <Home onNavigate={handleNavigate} />;
+  return (
+    <Home
+      onNavigate={handleNavigate}
+      openLoginOnLoad={homeLoginOpen}
+      onLoginModalShown={() => setHomeLoginOpen(false)}
+    />
+  );
 };
 
 createRoot(document.getElementById('root')!).render(<RootApp />);

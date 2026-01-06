@@ -13,9 +13,15 @@ import {
 
 type PantheonConcursosProps = {
   onNavigate?: (page: string) => void;
+  openLoginOnLoad?: boolean;
+  onLoginModalShown?: () => void;
 };
 
-export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
+export const PantheonConcursos = ({
+  onNavigate,
+  openLoginOnLoad,
+  onLoginModalShown,
+}: PantheonConcursosProps) => {
   const [loginModalOpen, setLoginModalOpen] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
   const [rememberMe, setRememberMe] = React.useState(false);
@@ -112,6 +118,13 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
       setLoginLoading(false);
     }
   };
+
+  React.useEffect(() => {
+    if (openLoginOnLoad) {
+      setLoginModalOpen(true);
+      onLoginModalShown?.();
+    }
+  }, [openLoginOnLoad, onLoginModalShown]);
 
   return (
     <div className="min-h-screen bg-white text-gray-900">
@@ -678,7 +691,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
           <p className="text-sm text-gray-700 mb-6">
             Abaixo voce encontra as perguntas mais comuns sobre o nosso curso
           </p>
-          <div className="space-y-4 max-w-4xl">
+          <div className="space-y-4 max-w-4xl mx-auto">
             {[
               "Quais as vantagens dos planos ofertados?",
               "O curso e totalmente online?",
@@ -723,16 +736,78 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
             <button
               onClick={() => setLoginModalOpen(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label="Fechar"
             >
               <X className="w-6 h-6" />
             </button>
 
             <div className="p-8">
               <div className="mb-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-1">
+                <h2 className="text-2xl font-semibold text-gray-900 leading-tight">
                   Faca login com sua conta
                 </h2>
-                <p className="text-2xl font-bold text-gray-900">Pantheon</p>
+                <p className="text-2xl font-semibold text-red-700">Pantheon</p>
+              </div>
+
+              <div className="space-y-3 mb-6">
+                <button
+                  type="button"
+                  className="w-full border border-gray-200 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm hover:bg-gray-50 transition-colors"
+                >
+                  <span className="w-6 h-6 rounded-full bg-white flex items-center justify-center border border-gray-200">
+                    <svg
+                      viewBox="0 0 48 48"
+                      className="w-4 h-4"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill="#FFC107"
+                        d="M43.611 20.083H42V20H24v8h11.303C33.749 32.657 29.23 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.955 3.045l5.657-5.657C34.047 6.053 29.268 4 24 4 12.954 4 4 12.954 4 24s8.954 20 20 20 20-8.954 20-20c0-1.341-.138-2.651-.389-3.917z"
+                      />
+                      <path
+                        fill="#FF3D00"
+                        d="M6.306 14.691l6.571 4.819C14.655 16.137 19.007 13 24 13c3.059 0 5.842 1.154 7.955 3.045l5.657-5.657C34.047 6.053 29.268 4 24 4 16.318 4 9.656 8.293 6.306 14.691z"
+                      />
+                      <path
+                        fill="#4CAF50"
+                        d="M24 44c5.127 0 9.86-1.977 13.409-5.197l-6.19-5.238C29.142 35.091 26.715 36 24 36c-5.206 0-9.712-3.318-11.275-7.946l-6.523 5.025C9.505 39.556 16.227 44 24 44z"
+                      />
+                      <path
+                        fill="#1976D2"
+                        d="M43.611 20.083H42V20H24v8h11.303c-.749 2.12-2.194 3.929-4.084 5.565l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.651-.389-3.917z"
+                      />
+                    </svg>
+                  </span>
+                  <span className="text-sm text-gray-700">
+                    Entrar com Google
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="w-full border border-gray-200 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm hover:bg-gray-50 transition-colors"
+                >
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="w-3.5 h-3.5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M13.5 8.5V7.1c0-.7.5-1.1 1.2-1.1H16V3.2c-.2 0-.9-.1-1.7-.1-1.7 0-2.9 1-2.9 3v2.4H9.5v2.7h2.2V21h2.8v-9.8h2.3l.4-2.7h-2.7z"
+                      />
+                    </svg>
+                  </span>
+                  <span className="text-sm text-gray-700">
+                    Entrar com Facebook
+                  </span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 text-xs text-gray-500 mb-4">
+                <span className="h-px bg-gray-200 flex-1" />
+                Ou entre com e-mail
+                <span className="h-px bg-gray-200 flex-1" />
               </div>
 
               <form className="space-y-4" onSubmit={handleAuth}>
@@ -744,7 +819,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
                     disabled={loginLoading}
                     autoComplete="email"
                   />
@@ -759,7 +834,7 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                       type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent pr-12"
+                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent pr-12"
                       disabled={loginLoading}
                       autoComplete="current-password"
                     />
@@ -778,21 +853,24 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                   </div>
                 </div>
 
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    id="rememberMe"
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
-                    disabled={loginLoading}
-                  />
-                  <label
-                    htmlFor="rememberMe"
-                    className="ml-2 text-sm text-gray-700"
-                  >
+                <div className="flex items-center justify-between text-sm">
+                  <label className="flex items-center gap-2 text-gray-700">
+                    <input
+                      type="checkbox"
+                      id="rememberMe"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-600"
+                      disabled={loginLoading}
+                    />
                     Lembrar senha
                   </label>
+                  <button
+                    type="button"
+                    className="text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                  >
+                    Esqueci minha senha
+                  </button>
                 </div>
 
                 {loginError && (
@@ -800,6 +878,16 @@ export const PantheonConcursos = ({ onNavigate }: PantheonConcursosProps) => {
                     {loginError}
                   </div>
                 )}
+
+                <div className="text-sm text-gray-700">
+                  Nao tem conta?{" "}
+                  <button
+                    type="button"
+                    className="text-blue-600 font-semibold hover:text-blue-700"
+                  >
+                    Criar uma Conta
+                  </button>
+                </div>
 
                 <button
                   type="submit"
