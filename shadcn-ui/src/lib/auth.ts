@@ -57,10 +57,19 @@ export const authenticatedFetch = async (
     headers: requestHeaders,
   });
 
-  // Verificar se a resposta indica falta de autenticação
+  // Verificar se a resposta indica falta de autentica��ǜo
   if (response.status === 401 || response.status === 403) {
+    const responseText = await response.text();
+    if (responseText.toLowerCase().includes('bloqueadousodiario')) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('pantheon:daily-limit', { detail: { message: responseText } })
+        );
+      }
+      throw new Error('Bloqueadousodiario');
+    }
     clearAuthToken();
-    throw new Error('Sessão expirada');
+    throw new Error('Sessǜo expirada');
   }
 
   return response;

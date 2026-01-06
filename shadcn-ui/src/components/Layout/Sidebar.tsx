@@ -21,6 +21,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { media } from '../../styles/GlobalStyles';
+import { clearAuthToken } from '../../lib/auth';
 
 interface SidebarProps {
   activeSection: string;
@@ -431,7 +432,15 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, isDar
         console.log('Navegando para Política de Privacidade');
         break;
       case 'logout':
-        console.log('Fazendo logout');
+        clearAuthToken();
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem('pantheon:fullName');
+          window.localStorage.removeItem('pantheon:role');
+          window.localStorage.removeItem('pantheon:lastEmail');
+          window.localStorage.removeItem('pantheon:lastPage');
+          window.localStorage.removeItem('pantheon:lastAdminSection');
+          window.location.href = '/';
+        }
         break;
     }
     setUserDropdownOpen(false);

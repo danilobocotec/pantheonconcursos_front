@@ -153,6 +153,69 @@ const CardsGrid = styled.div`
   }
 `;
 
+const DailyLimitOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+`;
+
+const DailyLimitModal = styled.div`
+  position: relative;
+  background: #0f0f0f;
+  border-radius: 18px;
+  padding: 16px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+`;
+
+const DailyLimitImageWrap = styled.div`
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+`;
+
+const DailyLimitImage = styled.img`
+  width: 100%;
+  height: auto;
+  max-height: 70vh;
+  object-fit: contain;
+  display: block;
+`;
+
+const DailyLimitButton = styled.a`
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 16px;
+  background: #f4c518;
+  color: #1a1a1a;
+  font-weight: 700;
+  text-decoration: none;
+  padding: 12px 16px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  font-size: 14px;
+`;
+
+const DailyLimitClose = styled.button`
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  cursor: pointer;
+`;
+
 const Card = styled.div`
   background: ${props => props.theme.colors.surface};
   border: 1px solid ${props => props.theme.colors.border};
@@ -209,6 +272,7 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
   const [activeSection, setActiveSection] = useState(initialSection);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showDailyLimitModal, setShowDailyLimitModal] = useState(false);
   const [contentData, setContentData] = useState<{
     courseId: string;
     moduleId: string;
@@ -228,6 +292,14 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  useEffect(() => {
+    const handleDailyLimit = () => {
+      setShowDailyLimitModal(true);
+    };
+    window.addEventListener('pantheon:daily-limit', handleDailyLimit);
+    return () => window.removeEventListener('pantheon:daily-limit', handleDailyLimit);
   }, []);
 
   const handleContentLoad = (courseId: string, moduleId: string, lessonId: string) => {
@@ -402,6 +474,22 @@ const App: React.FC<AppProps> = ({ initialSection = 'dashboard', onNavigateHome 
         <MainContent isMobile={isMobile} style={hideSidebar ? { marginLeft: 0 } : {}}>
           {renderContent()}
         </MainContent>
+        {showDailyLimitModal && (
+          <DailyLimitOverlay>
+            <DailyLimitModal>
+              <DailyLimitClose onClick={() => setShowDailyLimitModal(false)} aria-label="Fechar">
+                x
+              </DailyLimitClose>
+              <DailyLimitImageWrap>
+                <DailyLimitImage
+                  src="/Popup-LimitedecontedogratuitoatingidonPE.jpg"
+                  alt="Limite diario atingido"
+                />
+              </DailyLimitImageWrap>
+              <DailyLimitButton href="/aprova-oab">Quero passar na OAB</DailyLimitButton>
+            </DailyLimitModal>
+          </DailyLimitOverlay>
+        )}
       </AppContainer>
     </ThemeProvider>
   );

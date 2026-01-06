@@ -85,10 +85,10 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    fullName: "Danilo Augusto",
-    email: "guilherme.matossouza@gmail.com",
-    phone: "(22) 2 2222-2222",
-    cpf: "390.202.568-90",
+    fullName: "",
+    email: "",
+    phone: "",
+    cpf: "",
     cardNumber: "",
     expiryDate: "",
     cvv: "",
@@ -329,6 +329,29 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
     return { month, year: normalizedYear };
   };
 
+  const toReadableError = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return "Erro ao processar pagamento.";
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      return trimmed;
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "string") return parsed;
+      if (parsed?.message && typeof parsed.message === "string") return parsed.message;
+      if (Array.isArray(parsed?.errors)) {
+        const messages = parsed.errors
+          .map((err: any) => err?.message || err?.msg || err?.detail || err?.field)
+          .filter(Boolean);
+        if (messages.length > 0) return messages.join(", ");
+      }
+      if (parsed?.error && typeof parsed.error === "string") return parsed.error;
+      return "Erro ao processar pagamento.";
+    } catch {
+      return trimmed;
+    }
+  };
+
   const postJson = async (path: string, payload: Record<string, unknown>) => {
     const response = await fetch(buildApiUrl(path), {
       method: "POST",
@@ -341,7 +364,7 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
 
     if (!response.ok) {
       const message = await response.text();
-      throw new Error(message || "Erro ao processar pagamento.");
+      throw new Error(toReadableError(message));
     }
 
     return response.json();
