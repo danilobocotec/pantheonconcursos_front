@@ -538,6 +538,9 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
   const [categories, setCategories] = useState<any[]>([]);
   const [modules, setModules] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]);
+  const [progressOverrides, setProgressOverrides] = useState<
+    Map<string, { completed: boolean; updatedAt: number }>
+  >(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -563,6 +566,15 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
     // Escutar eventos de conclusão de itens
     const handleItemCompleted = (event: any) => {
       console.log('Item completed event:', event.detail);
+      if (event?.detail?.itemId !== undefined) {
+        const itemId = String(event.detail.itemId);
+        const completed = Boolean(event.detail.completed);
+        setProgressOverrides((previous) => {
+          const next = new Map(previous);
+          next.set(itemId, { completed, updatedAt: Date.now() });
+          return next;
+        });
+      }
       loadData(); // Recarregar dados para atualizar o progresso
     };
 
@@ -579,11 +591,12 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
       setError(null);
 
       // Buscar dados usando 4 endpoints (categorias, cursos, módulos e itens)
-      const [categoriesData, cursosData, modulesData, itemsData] = await Promise.all([
+      const [categoriesData, cursosData, modulesData, itemsData, progressData] = await Promise.all([
         authenticatedGet('/cursos/categorias'),
         authenticatedGet('/cursos'),
         authenticatedGet('/meus-cursos/modulos'),
         authenticatedGet('/meus-cursos/itens'),
+        authenticatedGet('/meus-cursos/itens/progresso'),
       ]);
 
       const derivedCategories = (Array.isArray(categoriesData) && categoriesData.length > 0)
@@ -607,15 +620,53 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
       console.log('Dados recebidos:', {
         categorias: categoriesData.length,
         modulos: modulesData.length,
-        itens: itemsData.length
+        itens: itemsData.length,
+        progresso: progressData?.length ?? 0
       });
       console.log('Categorias:', categoriesData);
       console.log('Módulos completos:', modulesData);
       console.log('Estrutura do primeiro módulo:', modulesData[0]);
       console.log('Itens:', itemsData);
+      console.log('Progresso:', progressData);
+
+      if (Array.isArray(progressData)) {
+        const progressIds = new Set(
+          progressData
+            .map((progress: any) =>
+              String(
+                progress?.course_item_id ??
+                progress?.item_id ??
+                progress?.itemId ??
+                progress?.item?.id ??
+                progress?.id ??
+                ''
+              )
+            )
+            .filter((value: string) => value)
+        );
+        const now = Date.now();
+        setProgressOverrides((previous) => {
+          if (previous.size === 0) return previous;
+          const next = new Map(previous);
+          Array.from(next.entries()).forEach(([id, entry]) => {
+            const isInProgressList = progressIds.has(id);
+            const isStale = now - entry.updatedAt > 5000;
+            if (isInProgressList || isStale) {
+              next.delete(id);
+            }
+          });
+          return next;
+        });
+      }
 
       // Organizar dados por categoria (1ª e 2ª fase)
-      const organized = organizeCoursesByCategory(derivedCategories, cursosData, modulesData, itemsData);
+      const organized = organizeCoursesByCategory(
+        derivedCategories,
+        cursosData,
+        modulesData,
+        itemsData,
+        progressData
+      );
       console.log('Cursos organizados:', organized);
       setCourses(organized);
 
@@ -645,8 +696,59 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
     }
   };
 
-  const organizeCoursesByCategory = (categoriesData: any[], cursosData: any[], modulesData: any[], itemsData: any[]) => {
-    const completedItems = JSON.parse(localStorage.getItem('pantheon:completed-items') || '[]');
+  const organizeCoursesByCategory = (
+    categoriesData: any[],
+    cursosData: any[],
+    modulesData: any[],
+    itemsData: any[],
+    progressData: any[]
+  ) => {
+    const completedItems = new Set<string>((() => {
+      try {
+        const stored = JSON.parse(localStorage.getItem('pantheon:completed-items') || '[]');
+        return Array.isArray(stored) ? stored.map((id) => String(id)) : [];
+      } catch (error) {
+        console.warn('Erro ao ler pantheon:completed-items', error);
+        return [];
+      }
+    })());
+
+    const progressByItemId = new Map<string, boolean>();
+    (Array.isArray(progressData) ? progressData : []).forEach((progress: any) => {
+      const progressItemId = String(
+        progress?.course_item_id ??
+        progress?.item_id ??
+        progress?.itemId ??
+        progress?.item?.id ??
+        progress?.id ??
+        ''
+      );
+      if (!progressItemId) return;
+      const completedValue =
+        typeof progress?.concluido === 'boolean'
+          ? progress.concluido
+          : typeof progress?.completed === 'boolean'
+          ? progress.completed
+          : undefined;
+      if (typeof completedValue === 'boolean') {
+        progressByItemId.set(progressItemId, completedValue);
+      }
+    });
+
+    const hasProgressList = Array.isArray(progressData);
+
+    const resolveItemCompleted = (item: any) => {
+      const itemId = String(item?.id ?? '');
+      const overrideEntry = progressOverrides.get(itemId);
+      if (overrideEntry) return overrideEntry.completed;
+      const progressCompleted = progressByItemId.get(itemId);
+      if (typeof progressCompleted === 'boolean') return progressCompleted;
+      if (hasProgressList) return false;
+      if (typeof item?.concluido === 'boolean') return item.concluido;
+      if (typeof item?.completed === 'boolean') return item.completed;
+      if (typeof item?.progresso?.concluido === 'boolean') return item.progresso.concluido;
+      return completedItems.has(itemId);
+    };
 
     console.log('=== INICIO organizeCoursesByCategory ===');
     console.log('Total de categorias:', categoriesData.length);
@@ -680,7 +782,7 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
         titulo: item.titulo || item.nome || 'Item sem titulo',
         tipo: item.tipo || '',
         conteudo: item.conteudo || '',
-        completed: completedItems.includes(item.id)
+        completed: resolveItemCompleted(item)
       };
 
       uniqueModuleIds.forEach((moduleId) => {
@@ -747,8 +849,19 @@ const MeusCursos: React.FC<MeusCursosProps> = ({ onContentLoad, onNavigateToCont
 
   const calculateCourseProgress = (modules: any[]) => {
     if (!modules || modules.length === 0) return 0;
-    const totalProgress = modules.reduce((sum, m) => sum + m.progress, 0);
-    return Math.round(totalProgress / modules.length);
+    const totals = modules.reduce(
+      (acc, module) => {
+        const totalItems = module.itens?.length || 0;
+        const completedItems = module.itens?.filter((item: any) => item.completed).length || 0;
+        return {
+          total: acc.total + totalItems,
+          completed: acc.completed + completedItems
+        };
+      },
+      { total: 0, completed: 0 }
+    );
+    if (totals.total === 0) return 0;
+    return Math.round((totals.completed / totals.total) * 100);
   };
 
   const toggleCourse = (courseId: string) => {

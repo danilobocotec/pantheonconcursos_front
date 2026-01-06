@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { ArrowLeft, ChevronRight, ChevronLeft, CheckCircle, Book, Check, ChevronDown } from 'lucide-react';
+import { authenticatedGet, authenticatedPost, authenticatedPut } from '../lib/auth';
 
 interface ConteudoItemProps {
   course: {
@@ -620,6 +621,82 @@ const ConteudoItem: React.FC<ConteudoItemProps> = ({
   }, [item.id, module.itens, course.id, course.nome, module.id, module.nome, item.titulo, item.completed]);
 
   const handleToggleComplete = () => {
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    const updateProgress = async (completed: boolean) => {
+      const progressUrl = `/meus-cursos/itens/${item.id}/progresso`;
+      const payload = {
+        concluido: completed,
+        data_conclusao: completed ? new Date().toISOString() : null
+      };
+
+      if (completed) {
+        try {
+          await authenticatedPost(progressUrl, payload);
+          return;
+        } catch (error) {
+          await authenticatedPut(progressUrl, payload);
+          return;
+        }
+      }
+
+      await authenticatedPut(progressUrl, payload);
+    };
+
+    const fetchItemProgressStatus = async (expectedCompleted: boolean): Promise<boolean | null> => {
+      const maxAttempts = expectedCompleted ? 3 : 1;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const progressData = await authenticatedGet('/meus-cursos/itens/progresso');
+        if (!Array.isArray(progressData)) {
+          return null;
+        }
+
+        const itemId = String(item.id);
+        const matched = progressData.find((progress: any) => {
+          const progressItemId = String(
+            progress?.course_item_id ??
+            progress?.item_id ??
+            progress?.itemId ??
+            progress?.item?.id ??
+            progress?.id ??
+            ''
+          );
+          return progressItemId === itemId;
+        });
+
+        if (!matched) {
+          if (expectedCompleted && attempt < maxAttempts - 1) {
+            await sleep(300);
+            continue;
+          }
+          return false;
+        }
+
+        if (typeof matched?.concluido === 'boolean') return matched.concluido;
+        if (typeof matched?.completed === 'boolean') return matched.completed;
+        return null;
+      }
+
+      return null;
+    };
+
+    const updateLocalProgress = (completed: boolean) => {
+      const completedItems = JSON.parse(localStorage.getItem('pantheon:completed-items') || '[]');
+      const itemId = String(item.id);
+      if (completed) {
+        if (!completedItems.includes(itemId)) {
+          completedItems.push(itemId);
+        }
+      } else {
+        const index = completedItems.indexOf(itemId);
+        if (index > -1) {
+          completedItems.splice(index, 1);
+        }
+      }
+      localStorage.setItem('pantheon:completed-items', JSON.stringify(completedItems));
+    };
+
     const newCompleted = !isCompleted;
     setIsCompleted(newCompleted);
 
@@ -627,19 +704,24 @@ const ConteudoItem: React.FC<ConteudoItemProps> = ({
       onItemComplete(item.id, newCompleted);
     }
 
-    // Salvar no localStorage como fallback
-    const completedItems = JSON.parse(localStorage.getItem('pantheon:completed-items') || '[]');
-    if (newCompleted) {
-      if (!completedItems.includes(item.id)) {
-        completedItems.push(item.id);
-      }
-    } else {
-      const index = completedItems.indexOf(item.id);
-      if (index > -1) {
-        completedItems.splice(index, 1);
-      }
-    }
-    localStorage.setItem('pantheon:completed-items', JSON.stringify(completedItems));
+    updateProgress(newCompleted)
+      .then(async () => {
+        const serverCompleted = await fetchItemProgressStatus(newCompleted);
+        const finalCompleted = typeof serverCompleted === 'boolean' ? serverCompleted : newCompleted;
+        setIsCompleted(finalCompleted);
+        if (onItemComplete) {
+          onItemComplete(item.id, finalCompleted);
+        }
+        updateLocalProgress(finalCompleted);
+      })
+      .catch((error) => {
+        console.error('Erro ao atualizar progresso do item:', error);
+        const previousCompleted = !newCompleted;
+        setIsCompleted(previousCompleted);
+        if (onItemComplete) {
+          onItemComplete(item.id, previousCompleted);
+        }
+      });
   };
 
   const handlePrevious = () => {
