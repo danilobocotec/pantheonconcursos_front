@@ -97,16 +97,15 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
     number: "",
     installments: "12",
   });
-  const [pixCode] = useState(
-    "00020126580014br.gov.bcb.pix0136a1b2c3d4-e5f6-7890-abcd-ef1234567890520400005303986540599.005802BR5913Pantheon Cursos6009Sao Paulo62070503***6304ABCD"
-  );
+  const [pixCode, setPixCode] = useState("");
+  const [pixQrImage, setPixQrImage] = useState<string | null>(null);
   const [copiedPix, setCopiedPix] = useState(false);
-  const [countdown, setCountdown] = useState(59 * 60 + 54); // 59:54
+  const [countdown, setCountdown] = useState(60 * 60);
 
   React.useEffect(() => {
     if (showPixModal && countdown > 0) {
       const timer = setInterval(() => {
-        setCountdown((prev) => prev - 1);
+        setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
       }, 1000);
       return () => clearInterval(timer);
     }
@@ -129,15 +128,93 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
   };
 
   const handleCopyPixCode = () => {
+    if (!pixCode) {
+      return;
+    }
     navigator.clipboard.writeText(pixCode);
     setCopiedPix(true);
     setTimeout(() => setCopiedPix(false), 2000);
   };
 
+  const createPixPayment = async () => {
+    const externalReference = `pix-${selectedPlan.key}-${Date.now()}`;
+    const customer = await postJson("/asaas/customers", {
+      cpfCnpj: formData.cpf,
+      email: formData.email,
+      externalReference,
+      mobilePhone: formData.phone,
+      name: formData.fullName,
+      notificationDisabled: true,
+      phone: formData.phone,
+    });
+    const customerId = customer?.id ?? customer?.customer?.id;
+    if (!customerId) {
+      throw new Error("Cliente nao retornou ID.");
+    }
+
+    const payment = await postJson("/asaas/payments/pix", {
+      billingType: "PIX",
+      customer: customerId,
+      description: selectedPlan.name,
+      dueDate: new Date().toISOString().slice(0, 10),
+      value: selectedPlan.pixPrice,
+    });
+
+    const paymentId = payment?.asaas_id ?? payment?.id;
+    if (!paymentId) {
+      throw new Error("Pagamento nao retornou ID.");
+    }
+
+    const qrResponse = await fetch(
+      buildApiUrl(`/asaas/payments/${paymentId}/pixQrCode`),
+      {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+        },
+      }
+    );
+
+    if (!qrResponse.ok) {
+      const message = await qrResponse.text();
+      throw new Error(message || "Erro ao carregar QR Code do Pix.");
+    }
+
+    const qrData = await qrResponse.json();
+    const encodedImage =
+      qrData?.encodedImage ??
+      qrData?.qrCode?.encodedImage ??
+      qrData?.pix_qr_code?.encodedImage;
+    const payload =
+      qrData?.payload ?? qrData?.qrCode?.payload ?? qrData?.pix_qr_code?.payload;
+    if (!encodedImage || !payload) {
+      throw new Error("Resposta do Pix incompleta.");
+    }
+
+    return { encodedImage, payload };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (paymentMethod === "pix") {
-      setShowPixModal(true);
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      try {
+        const pixPayment = await createPixPayment();
+        setPixCode(pixPayment.payload);
+        setPixQrImage(`data:image/png;base64,${pixPayment.encodedImage}`);
+        setCountdown(60 * 60);
+        setCopiedPix(false);
+        setShowPixModal(true);
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Erro ao processar pagamento.";
+        setErrorMessage(message);
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
@@ -691,53 +768,64 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
 
             <div className="p-8">
               <div className="text-center mb-6">
-                <p className="text-gray-700 font-semibold mb-4">
+                <p className="text-gray-700 font-semibold">
                   PIX disponivel para pagamento!
-                  <br />
+                </p>
+                <p className="text-gray-700 font-semibold">
                   Faca o pagamento do PIX abaixo para finalizar o seu pedido:
                 </p>
+              </div>
 
-                {/* QR Code */}
-                <div className="bg-blue-600 rounded-2xl p-6 max-w-sm mx-auto mb-4">
-                  <div className="bg-white rounded-xl p-4 mb-4">
-                    <img
-                      src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyMzAgMjMwIj48cGF0aCBmaWxsPSIjMDAwIiBkPSJNMCAwaDIzMHYyMzBIMHoiLz48cGF0aCBmaWxsPSIjZmZmIiBkPSJNMjAgMjBoMTl2MTlIMjB6bTE5IDBIMjB2MTloMTl6bTAgMTlIMjBWMjBoMTl6bTE5LTE5aDM4djE5SDU4em0xOSAwaDM4djE5SDc3em0xOSAwaDM4djE5SDk2em0xOSAwaDM4djE5SDExNXptMTkgMGgzOHYxOUgxMzR6bTE5IDBoMzh2MTlIMTUzem0xOSAwaDM4djE5SDE3MnptMzggMGgxOXYxOWgtMTl6bTAgMTloMTlWMjBoLTE5ek0yMCA1OGgxOXYxOUgyMHptMCAxOWgxOXYxOUgyMHptMCAxOWgxOXYxOUgyMHptMTkgMGgxOXYxOUgzOXptMCAxOWgxOXYxOUgzOXptMTkgMGgxOXYxOUg1OHptMCAxOWgxOXYxOUg1OHptMTkgMGgxOXYxOUg3N3ptMCAxOWgxOXYxOUg3N3ptMTkgMGgxOXYxOUg5NnptMTkgMGgxOXYxOUgxMTV6bTE5IDBoMTl2MTlIMTM0em0wIDE5aDE5djE5SDEzNHptMTkgMGgxOXYxOUgxNTN6bTE5IDBoMTl2MTlIMTcyem0xOSAwaDMOdjE5SDE5MXptMTkgMGgxOXYxOUgyMTB6Ii8+PC9zdmc+"
-                      alt="QR Code PIX"
-                      className="w-full h-auto"
-                    />
-                  </div>
-                  <p className="text-white text-sm font-semibold mb-3">
-                    Escaneie o QRCode ao lado ou
-                    <br />
-                    clique abaixo para copiar o codigo:
-                  </p>
-                  <button
-                    onClick={handleCopyPixCode}
-                    className="bg-white text-blue-600 font-bold py-3 px-6 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    {copiedPix ? (
-                      <span className="flex items-center gap-2">
-                        <Check className="w-5 h-5" />
-                        Codigo copiado!
-                      </span>
+              {/* QR Code */}
+              <div className="bg-blue-600 rounded-2xl p-6 max-w-md mx-auto mb-6">
+                <div className="flex flex-col md:flex-row items-center gap-6">
+                  <div className="bg-white rounded-xl p-3 w-40 h-40 flex items-center justify-center">
+                    {pixQrImage ? (
+                      <img
+                        src={pixQrImage}
+                        alt="QR Code PIX"
+                        className="w-full h-full object-contain"
+                      />
                     ) : (
-                      <span className="flex items-center gap-2">
-                        <Copy className="w-5 h-5" />
-                        Copiar codigo PIX
-                      </span>
+                      <div className="text-center text-sm text-gray-600">
+                        Carregando QR Code...
+                      </div>
                     )}
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-center gap-4 text-sm text-gray-700 mb-6">
-                  <span>Seu codigo expira em:</span>
-                  <div className="bg-blue-100 text-blue-800 font-mono font-bold px-4 py-2 rounded-full">
-                    {formatTime(countdown)}
                   </div>
-                  <span>
-                    Valor a pagar: <strong>R$ {formatCurrency(totalPrice)}</strong>
-                  </span>
+                  <div className="text-white text-center md:text-left">
+                    <p className="text-sm font-semibold mb-3">
+                      Escaneie o QRCode ao lado ou
+                      <br />
+                      clique abaixo para copiar o codigo:
+                    </p>
+                    <button
+                      onClick={handleCopyPixCode}
+                      className="bg-white text-blue-600 font-bold py-3 px-6 rounded-lg hover:bg-gray-100 transition-colors w-full"
+                    >
+                      {copiedPix ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <Check className="w-5 h-5" />
+                          Codigo copiado!
+                        </span>
+                      ) : (
+                        <span className="flex items-center justify-center gap-2">
+                          <Copy className="w-5 h-5" />
+                          Copiar codigo PIX
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row items-center justify-center gap-4 text-sm text-gray-700 mb-6">
+                <span>Seu codigo expira em:</span>
+                <div className="w-16 h-16 rounded-full border-4 border-blue-200 flex items-center justify-center text-blue-800 font-mono font-bold">
+                  {formatTime(countdown)}
+                </div>
+                <span>
+                  Valor a pagar: <strong>R$ {formatCurrency(totalPrice)}</strong>
+                </span>
               </div>
 
               {/* Informacoes importantes */}
