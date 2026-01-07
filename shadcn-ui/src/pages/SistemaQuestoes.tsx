@@ -14,6 +14,8 @@ import {
   Plus,
   Minus,
   Search,
+  ChevronDown,
+  X,
   Download,
   Play
 } from 'lucide-react';
@@ -39,6 +41,9 @@ interface Question {
   type: 'multiple' | 'true-false';
   subject: string;
   discipline: string;
+  bank: string;
+  contest: string;
+  questionNumber: string;
   institution: string;
   year: number;
   difficulty: 'easy' | 'medium' | 'hard';
@@ -87,8 +92,44 @@ type PerformanceSummary = {
 
 type UnknownRecord = Record<string, unknown>;
 
+type QuestionFilterOptions = {
+  disciplina: string[];
+  assunto: string[];
+  banca: string[];
+  orgao: string[];
+  cargo: string[];
+  concurso: string[];
+  tipo_questao: string[];
+  correcao_questao: string[];
+  anulada: boolean[];
+  desatualizada: boolean[];
+};
+
+type QuestionFilters = {
+  texto: string;
+  disciplina: string[];
+  assunto: string[];
+  banca: string[];
+  orgao: string[];
+  cargo: string[];
+  concurso: string[];
+  tipo_questao: string[];
+  correcao_questao: string[];
+  excluirAnulada: boolean;
+  excluirDesatualizada: boolean;
+};
+
+type MultiFilterKey =
+  | 'disciplina'
+  | 'assunto'
+  | 'banca'
+  | 'orgao'
+  | 'cargo'
+  | 'concurso';
+
 const TOKEN_KEY = 'pantheon:token';
 const QUESTIONS_URL = buildApiUrl('/questoes');
+const QUESTIONS_COUNT_URL = buildApiUrl('/questoes/contador');
 const QUESTION_FILTERS_URL = buildApiUrl('/questoes/filtros');
 const PERFORMANCE_URL = buildApiUrl('/meu-desempenho');
 const PERFORMANCE_SUMMARY_URL = buildApiUrl('/meu-desempenho/resumo');
@@ -125,9 +166,46 @@ const toNumber = (value: unknown): number | null => {
   return null;
 };
 
+const decodeHtmlEntities = (value: string) => {
+  if (typeof document !== 'undefined') {
+    const textarea = document.createElement('textarea');
+    let decoded = value;
+    for (let i = 0; i < 2; i += 1) {
+      textarea.innerHTML = decoded;
+      const next = textarea.value;
+      if (next === decoded) break;
+      decoded = next;
+    }
+    return decoded;
+  }
+
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&eacute;/gi, 'é')
+    .replace(/&aacute;/gi, 'á')
+    .replace(/&atilde;/gi, 'ã')
+    .replace(/&ccedil;/gi, 'ç')
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) =>
+      String.fromCharCode(Number.parseInt(hex, 16))
+    )
+    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(Number(num)));
+};
+
 const normalizeQuestionText = (value: string) => {
   if (!value) return '';
-  const withBreaks = value.replace(/<br\s*\/?>/gi, '\n');
+  const decoded = decodeHtmlEntities(value);
+  const unescaped = decoded
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .replace(/\\t/g, ' ');
+  const withBreaks = unescaped.replace(/<br\s*\/?>/gi, '\n');
   const withoutTags = withBreaks.replace(/<\/?[^>]+>/g, '');
   return withoutTags.replace(/\r\n/g, '\n').trim();
 };
@@ -138,6 +216,44 @@ const normalizeFilterValue = (value: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+
+const normalizeFilterValues = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === 'string' ? entry : String(entry ?? '')))
+      .map((entry) => entry.trim())
+      .filter((entry) => Boolean(entry));
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => Boolean(entry));
+  }
+  return [];
+};
+
+const normalizeBooleanValues = (value: unknown): boolean[] => {
+  const normalizeEntry = (entry: unknown): boolean | null => {
+    if (typeof entry === 'boolean') return entry;
+    if (typeof entry === 'number') return entry !== 0;
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim().toLowerCase();
+      if (!trimmed) return null;
+      if (['true', '1', 'sim', 'yes'].includes(trimmed)) return true;
+      if (['false', '0', 'nao', 'não', 'no'].includes(trimmed)) return false;
+    }
+    return null;
+  };
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeEntry(entry))
+      .filter((entry): entry is boolean => entry !== null);
+  }
+  const normalized = normalizeEntry(value);
+  return normalized === null ? [] : [normalized];
+};
 
 const pad2 = (value: number) => String(value).padStart(2, '0');
 
@@ -223,6 +339,65 @@ const normalizePerformanceSummary = (payload: unknown): PerformanceSummary => {
   };
 };
 
+const normalizeQuestionFilters = (payload: unknown): QuestionFilterOptions => {
+  const fallback: QuestionFilterOptions = {
+    disciplina: [],
+    assunto: [],
+    banca: [],
+    orgao: [],
+    cargo: [],
+    concurso: [],
+    tipo_questao: [],
+    correcao_questao: [],
+    anulada: [],
+    desatualizada: []
+  };
+  if (!isRecord(payload)) return fallback;
+
+  return {
+    disciplina: normalizeFilterValues(payload['disciplina']),
+    assunto: normalizeFilterValues(payload['assunto']),
+    banca: normalizeFilterValues(payload['banca']),
+    orgao: normalizeFilterValues(payload['orgao']),
+    cargo: normalizeFilterValues(payload['cargo']),
+    concurso: normalizeFilterValues(payload['concurso']),
+    tipo_questao: normalizeFilterValues(payload['tipo_questao']),
+    correcao_questao: normalizeFilterValues(payload['correcao_questao']),
+    anulada: normalizeBooleanValues(payload['anulada']),
+    desatualizada: normalizeBooleanValues(payload['desatualizada'])
+  };
+};
+
+const normalizeQuestionsCount = (payload: unknown) => {
+  if (typeof payload === 'number' && Number.isFinite(payload)) {
+    return Math.max(0, Math.trunc(payload));
+  }
+  if (isRecord(payload)) {
+    const candidates = [
+      'count',
+      'total',
+      'quantidade',
+      'total_questoes',
+      'totalQuestoes',
+      'questoes',
+      'contador'
+    ];
+    for (const key of candidates) {
+      const value = payload[key];
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return Math.max(0, Math.trunc(value));
+      }
+      if (typeof value === 'string') {
+        const parsed = Number(value);
+        if (!Number.isNaN(parsed)) {
+          return Math.max(0, Math.trunc(parsed));
+        }
+      }
+    }
+  }
+  return 0;
+};
+
 const indexToLetter = (index: number) => String.fromCharCode(97 + index);
 
 const normalizeAnswerKey = (value: unknown) => {
@@ -244,6 +419,47 @@ const normalizeAnswerKey = (value: unknown) => {
 };
 
 const extractQuestionOptions = (record: UnknownRecord): string[] => {
+  const splitSingleOption = (options: string[]) => {
+    if (options.length !== 1) return options;
+    const raw = options[0].trim();
+    if (!raw) return options;
+    const unescaped = raw
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\n')
+      .replace(/\\t/g, ' ')
+      .trim();
+    if (unescaped.includes('",')) {
+      const stripped = unescaped.replace(/^\[\s*"/, '').replace(/"\s*\]$/, '');
+      const pieces = stripped
+        .split(/"\s*,\s*"/)
+        .map((item) => item.replace(/^[\[\s"]+|[\]\s"]+$/g, '').trim())
+        .filter(Boolean);
+      if (pieces.length > 1) return pieces;
+    }
+    const normalized = normalizeFilterValue(unescaped);
+    const parts = unescaped
+      .split(/\n+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (parts.length > 1) return parts;
+    if (normalized.includes('certo') && normalized.includes('errado')) {
+      const trueFalseParts = raw
+        .split(/\s*(?:,|;|\||\/|\n|\r|\bou\b)\s*/i)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (trueFalseParts.length >= 2) {
+        const trimmedParts = trueFalseParts.filter(
+          (item) =>
+            normalizeFilterValue(item).includes('certo') ||
+            normalizeFilterValue(item).includes('errado')
+        );
+        if (trimmedParts.length >= 2) return trimmedParts;
+      }
+    }
+    return options;
+  };
+
   const alternativeKeys = [
     'alternativa_a',
     'alternativa_b',
@@ -259,7 +475,7 @@ const extractQuestionOptions = (record: UnknownRecord): string[] => {
   const alternativeValues = alternativeKeys
     .map((key) => normalizeQuestionText(getString(record, key)))
     .filter((value) => value);
-  if (alternativeValues.length) return alternativeValues;
+  if (alternativeValues.length) return splitSingleOption(alternativeValues);
 
   const raw =
     record['alternativas'] ??
@@ -269,7 +485,7 @@ const extractQuestionOptions = (record: UnknownRecord): string[] => {
     record['alternatives'] ??
     record['respostas'];
   if (Array.isArray(raw)) {
-    return raw.map((item) => {
+    return splitSingleOption(raw.map((item) => {
       if (typeof item === 'string') return normalizeQuestionText(item);
       if (isRecord(item)) {
         return normalizeQuestionText(
@@ -281,10 +497,10 @@ const extractQuestionOptions = (record: UnknownRecord): string[] => {
         );
       }
       return normalizeQuestionText(String(item ?? ''));
-    });
+    }));
   }
   if (isRecord(raw)) {
-    return Object.values(raw).map((value) => {
+    return splitSingleOption(Object.values(raw).map((value) => {
       if (typeof value === 'string') return normalizeQuestionText(value);
       if (isRecord(value)) {
         return normalizeQuestionText(
@@ -296,7 +512,24 @@ const extractQuestionOptions = (record: UnknownRecord): string[] => {
         );
       }
       return normalizeQuestionText(String(value ?? ''));
-    });
+    }));
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return splitSingleOption(parsed
+          .map((item) => normalizeQuestionText(String(item ?? '')))
+          .filter((value) => value));
+      }
+      if (isRecord(parsed)) {
+        return splitSingleOption(Object.values(parsed)
+          .map((item) => normalizeQuestionText(String(item ?? '')))
+          .filter((value) => value));
+      }
+    } catch (error) {
+      return splitSingleOption([normalizeQuestionText(raw)].filter((value) => value));
+    }
   }
   return [];
 };
@@ -310,9 +543,54 @@ const normalizeDifficulty = (value: string) => {
 };
 
 const getDifficultyLabel = (value: Question['difficulty']) => {
-  if (value === 'easy') return 'F├ícil';
-  if (value === 'hard') return 'Dif├¡cil';
-  return 'M├®dio';
+  if (value === 'easy') return 'Fácil';
+  if (value === 'hard') return 'Difícil';
+  return 'Médio';
+};
+
+const formatTipoQuestaoLabel = (value: string) => {
+  const normalized = normalizeFilterValue(value);
+  if (normalized.includes('certo') || normalized.includes('errado')) {
+    return 'Certo ou Errado';
+  }
+  if (normalized.includes('multipla')) return 'Múltipla escolha';
+  if (normalized.includes('discursiva')) return 'Discursiva';
+  return value || 'Tipo';
+};
+
+const formatCorrecaoLabel = (value: string) => {
+  const normalized = normalizeFilterValue(value);
+  if (normalized.includes('nao') && normalized.includes('resolvida')) return 'Não resolvidas';
+  if (normalized.includes('resolvida')) return 'Resolvidas';
+  if (normalized.includes('certa') || normalized.includes('correta')) return 'Certas';
+  if (normalized.includes('errada') || normalized.includes('incorreta')) return 'Erradas';
+  return value || 'Status';
+};
+
+const buildQuestionQuery = (filters: QuestionFilters, page?: number) => {
+  const params = new URLSearchParams();
+  const entries: Array<[string, string]> = [
+    ['texto', filters.texto.trim()],
+    ['disciplina', filters.disciplina.map(item => item.trim()).filter(Boolean).join(',')],
+    ['assunto', filters.assunto.map(item => item.trim()).filter(Boolean).join(',')],
+    ['banca', filters.banca.map(item => item.trim()).filter(Boolean).join(',')],
+    ['orgao', filters.orgao.map(item => item.trim()).filter(Boolean).join(',')],
+    ['cargo', filters.cargo.map(item => item.trim()).filter(Boolean).join(',')],
+    ['concurso', filters.concurso.map(item => item.trim()).filter(Boolean).join(',')],
+    ['tipo_questao', filters.tipo_questao.map(item => item.trim()).filter(Boolean).join(',')],
+    ['correcao_questao', filters.correcao_questao.map(item => item.trim()).filter(Boolean).join(',')]
+  ];
+
+  entries.forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+
+  if (filters.excluirAnulada) params.set('anulada', 'false');
+  if (filters.excluirDesatualizada) params.set('desatualizada', 'false');
+  if (page) params.set('page', String(page));
+
+  const query = params.toString();
+  return query ? `?${query}` : '';
 };
 
 const normalizeQuestionRecord = (item: unknown, index: number): Question => {
@@ -359,18 +637,45 @@ const normalizeQuestionRecord = (item: unknown, index: number): Question => {
     'disciplina'
   ]);
   const assunto = getFirstString(record, ['assunto', 'tema', 'topico', 'cargo']);
+  const banca = getFirstString(record, ['banca', 'banca_nome', 'nome_banca']);
   const instituicao = getFirstString(record, ['orgao', 'instituicao']);
-  const concurso = getFirstString(record, ['concurso', 'ano']);
+  const concurso = getFirstString(record, [
+    'concurso',
+    'concurso_nome',
+    'nome_concurso',
+    'concursoNome'
+  ]);
+  const anoRaw = getFirstString(record, ['ano', 'year', 'concurso_ano', 'concursoAno']);
   const difficultyValue = normalizeDifficulty(
     getFirstString(record, ['dificuldade', 'difficulty'], 'medium')
   );
+  const questionTypeRaw = getFirstString(record, ['tipo_questao', 'tipoQuestao']);
+  const normalizedQuestionType = normalizeFilterValue(questionTypeRaw);
+  const questionType: Question['type'] =
+    normalizedQuestionType.includes('certo') ||
+    normalizedQuestionType.includes('errado') ||
+    normalizedQuestionType.includes('verdadeiro') ||
+    normalizedQuestionType.includes('falso')
+      ? 'true-false'
+      : 'multiple';
   const gabarito = normalizeQuestionText(getString(record, 'gabarito'));
   const comentario = normalizeQuestionText(getString(record, 'comentario'));
   const resolucao = normalizeQuestionText(
     getFirstString(record, ['resolucao_banca', 'resolucaoBanca'])
   );
   const explanation = [gabarito, comentario, resolucao].filter(Boolean).join('\n\n');
-  const yearNumber = Number.parseInt(concurso, 10);
+  const yearNumber = Number.parseInt(anoRaw || concurso, 10);
+  const questionNumber = getFirstString(record, [
+    'numero',
+    'numero_questao',
+    'numeroQuestao',
+    'codigo',
+    'codigo_questao',
+    'codigoQuestao',
+    'id_questao',
+    'idQuestao',
+    'id'
+  ]);
 
   return {
     id: getFirstString(
@@ -378,13 +683,16 @@ const normalizeQuestionRecord = (item: unknown, index: number): Question => {
       ['id', 'uuid', 'id_questao', 'idQuestao'],
       String(index)
     ),
-    type: 'multiple',
+    type: questionType,
     subject: assunto || '-',
     discipline: disciplina || '-',
+    bank: banca || '-',
+    contest: concurso || '-',
+    questionNumber: questionNumber || '-',
     institution: instituicao || '-',
     year: Number.isNaN(yearNumber) ? 0 : yearNumber,
     difficulty: difficultyValue as Question['difficulty'],
-    question: normalizeQuestionText(enunciadoRaw) || 'Enunciado nao informado.',
+    question: normalizeQuestionText(enunciadoRaw) || 'Enunciado não informado.',
     options: options.length ? options : undefined,
     correctAnswer,
     explanation: explanation || 'Sem gabarito informado.',
@@ -466,17 +774,17 @@ const TabContainer = styled.div`
   }
 `;
 
-const Tab = styled.button<{ active: boolean }>`
+const Tab = styled.button<{ $active: boolean }>`
   padding: 16px 24px;
   border: none;
-  background: ${props => props.active ? props.theme.colors.accent : 'transparent'};
-  color: ${props => props.active ? 'white' : props.theme.colors.text};
+  background: ${props => props.$active ? props.theme.colors.accent : 'transparent'};
+  color: ${props => props.$active ? 'white' : props.theme.colors.text};
   font-weight: 600;
   font-size: 16px;
   border-radius: 8px 8px 0 0;
   cursor: pointer;
   transition: all 0.2s ease;
-  border-bottom: ${props => props.active ? 'none' : `1px solid ${props.theme.colors.border}`};
+  border-bottom: ${props => props.$active ? 'none' : `1px solid ${props.theme.colors.border}`};
   display: flex;
   align-items: center;
   gap: 8px;
@@ -484,8 +792,8 @@ const Tab = styled.button<{ active: boolean }>`
   flex-shrink: 0;
 
   &:hover {
-    background: ${props => props.active ? props.theme.colors.accentSecondary : `${props.theme.colors.accentSecondary}15`};
-    color: ${props => props.active ? 'white' : props.theme.colors.accentSecondary};
+    background: ${props => props.$active ? props.theme.colors.accentSecondary : `${props.theme.colors.accentSecondary}15`};
+    color: ${props => props.$active ? 'white' : props.theme.colors.accentSecondary};
   }
 
   ${media.mobile} {
@@ -510,6 +818,120 @@ const FiltersContainer = styled.div`
   }
 `;
 
+const FiltersCard = styled(Card)`
+  padding: 20px;
+  margin-bottom: 16px;
+
+  ${media.mobile} {
+    padding: 16px;
+  }
+`;
+
+const FiltersGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+`;
+
+const FiltersActions = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+
+  ${media.mobile} {
+    justify-content: flex-start;
+  }
+`;
+
+const FilterLinkButton = styled.button`
+  border: none;
+  background: transparent;
+  color: ${props => props.theme.colors.accentSecondary};
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+`;
+
+const AdvancedFilters = styled.div`
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+`;
+
+const SelectedFilters = styled.div`
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+`;
+
+const AdvancedFiltersRow = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+`;
+
+const AdvancedFiltersLabel = styled.span`
+  font-size: 14px;
+  color: ${props => props.theme.colors.text};
+  font-weight: 600;
+`;
+
+const FilterChips = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+`;
+
+const FilterChip = styled.button<{ $active: boolean }>`
+  border: 1px solid ${props => props.$active ? props.theme.colors.accent : props.theme.colors.border};
+  background: ${props => props.$active ? `${props.theme.colors.accent}15` : props.theme.colors.background};
+  color: ${props => props.$active ? props.theme.colors.accent : props.theme.colors.textSecondary};
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  &:hover {
+    border-color: ${props => props.theme.colors.accentSecondary};
+    color: ${props => props.theme.colors.accentSecondary};
+  }
+`;
+
+const QuestionCountRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+`;
+
+const PaginationContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+`;
+
+const PaginationInfo = styled.span`
+  font-size: 14px;
+  color: ${props => props.theme.colors.textSecondary};
+`;
+
 const FilterGroup = styled.div`
   display: flex;
   flex-direction: column;
@@ -525,6 +947,30 @@ const FilterGroup = styled.div`
     font-weight: 600;
     color: ${props => props.theme.colors.textSecondary};
     text-transform: uppercase;
+  }
+
+  input {
+    padding: 8px 12px;
+    border: 1px solid ${props => props.theme.colors.border};
+    border-radius: 6px;
+    background: ${props => props.theme.colors.background};
+    color: ${props => props.theme.colors.text};
+    font-size: 14px;
+    transition: all 0.2s ease;
+
+    &:hover {
+      border-color: ${props => props.theme.colors.accentSecondary};
+    }
+
+    &:focus {
+      border-color: ${props => props.theme.colors.accentSecondary};
+      outline: none;
+    }
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
   }
 
   select {
@@ -550,6 +996,75 @@ const FilterGroup = styled.div`
       cursor: not-allowed;
     }
   }
+`;
+
+const MultiSelectWrapper = styled.div`
+  position: relative;
+`;
+
+const MultiSelectButton = styled.button<{ $open?: boolean }>`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: 6px;
+  background: ${props => props.theme.colors.background};
+  color: ${props => props.theme.colors.text};
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    border-color: ${props => props.theme.colors.accentSecondary};
+  }
+
+  ${props => props.$open && `
+    border-color: ${props.theme.colors.accentSecondary};
+    box-shadow: 0 0 0 2px ${props.theme.colors.accentSecondary}20;
+  `}
+`;
+
+const MultiSelectMenu = styled.div`
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: ${props => props.theme.colors.background};
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: 8px;
+  z-index: 20;
+  box-shadow: 0 10px 30px ${props => props.theme.colors.shadow};
+  padding: 10px;
+`;
+
+const MultiSelectSearch = styled.input`
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 8px;
+`;
+
+const MultiSelectList = styled.div`
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const MultiSelectOption = styled.label`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: ${props => props.theme.colors.text};
+  padding: 4px 2px;
+  cursor: pointer;
 `;
 
 const FontControlGroup = styled.div`
@@ -625,10 +1140,10 @@ const QuestionCounter = styled.div`
   }
 `;
 
-const QuestionItem = styled(Card)<{ answered?: boolean; correct?: boolean; fontSize?: number }>`
+const QuestionItem = styled(Card)<{ $answered?: boolean; $correct?: boolean; $fontSize?: number }>`
   margin-bottom: 24px;
-  ${props => props.answered && `
-    border-left: 4px solid ${props.correct ? props.theme.colors.success : props.theme.colors.error};
+  ${props => props.$answered && `
+    border-left: 4px solid ${props.$correct ? props.theme.colors.success : props.theme.colors.error};
   `}
 
   ${media.mobile} {
@@ -652,6 +1167,44 @@ const QuestionHeader = styled.div`
 
   .question-info {
     flex: 1;
+
+    .question-heading {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+
+      .question-index {
+        font-size: 16px;
+        font-weight: 700;
+        color: ${props => props.theme.colors.text};
+      }
+
+      .question-code {
+        background: ${props => props.theme.colors.surface};
+        border: 1px solid ${props => props.theme.colors.border};
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        color: ${props => props.theme.colors.text};
+      }
+    }
+
+    .question-detail {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      font-size: 13px;
+      color: ${props => props.theme.colors.textSecondary};
+      margin-bottom: 10px;
+
+      strong {
+        color: ${props => props.theme.colors.text};
+        font-weight: 600;
+      }
+    }
     
     .meta {
       display: flex;
@@ -680,15 +1233,15 @@ const QuestionHeader = styled.div`
   }
 `;
 
-const QuestionText = styled.div<{ fontSize?: number }>`
-  font-size: ${props => props.fontSize || 16}px;
+const QuestionText = styled.div<{ $fontSize?: number }>`
+  font-size: ${props => props.$fontSize || 16}px;
   line-height: 1.6;
   color: ${props => props.theme.colors.text};
   white-space: pre-wrap;
   margin-bottom: 20px;
 
   ${media.mobile} {
-    font-size: ${props => Math.max((props.fontSize || 16) - 2, 14)}px;
+    font-size: ${props => Math.max((props.$fontSize || 16) - 2, 14)}px;
     margin-bottom: 16px;
     line-height: 1.5;
   }
@@ -707,11 +1260,11 @@ const OptionsContainer = styled.div`
 `;
 
 const Option = styled.div<{ 
-  selected?: boolean; 
-  correct?: boolean; 
-  incorrect?: boolean; 
-  striked?: boolean;
-  fontSize?: number;
+  $selected?: boolean; 
+  $correct?: boolean; 
+  $incorrect?: boolean; 
+  $striked?: boolean;
+  $fontSize?: number;
 }>`
   display: flex;
   align-items: center;
@@ -723,28 +1276,28 @@ const Option = styled.div<{
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
-  opacity: ${props => props.striked ? 0.4 : 1};
-  text-decoration: ${props => props.striked ? 'line-through' : 'none'};
-  font-size: ${props => props.fontSize || 16}px;
+  opacity: ${props => props.$striked ? 0.4 : 1};
+  text-decoration: ${props => props.$striked ? 'line-through' : 'none'};
+  font-size: ${props => props.$fontSize || 16}px;
 
   ${media.mobile} {
     gap: 8px;
     padding: 10px;
-    font-size: ${props => Math.max((props.fontSize || 16) - 2, 14)}px;
+    font-size: ${props => Math.max((props.$fontSize || 16) - 2, 14)}px;
     margin-bottom: 6px;
   }
 
   background: ${props => {
-    if (props.correct) return `${props.theme.colors.success}15`;
-    if (props.incorrect) return '#db302615';
-    if (props.selected) return `${props.theme.colors.accent}15`;
+    if (props.$correct) return `${props.theme.colors.success}15`;
+    if (props.$incorrect) return '#db302615';
+    if (props.$selected) return `${props.theme.colors.accent}15`;
     return 'transparent';
   }};
 
   border-color: ${props => {
-    if (props.correct) return props.theme.colors.success;
-    if (props.incorrect) return '#db3026';
-    if (props.selected) return props.theme.colors.accent;
+    if (props.$correct) return props.theme.colors.success;
+    if (props.$incorrect) return '#db3026';
+    if (props.$selected) return props.theme.colors.accent;
     return props.theme.colors.border;
   }};
 
@@ -841,11 +1394,11 @@ const QuestionTabs = styled.div`
   }
 `;
 
-const QuestionTab = styled.button<{ active: boolean }>`
+const QuestionTab = styled.button<{ $active: boolean }>`
   padding: 8px 16px;
   border: 1px solid ${props => props.theme.colors.border};
-  background: ${props => props.active ? props.theme.colors.accent : props.theme.colors.surface};
-  color: ${props => props.active ? 'white' : props.theme.colors.text};
+  background: ${props => props.$active ? props.theme.colors.accent : props.theme.colors.surface};
+  color: ${props => props.$active ? 'white' : props.theme.colors.text};
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
@@ -864,36 +1417,36 @@ const QuestionTab = styled.button<{ active: boolean }>`
   }
 
   &:hover {
-    background: ${props => props.active ? props.theme.colors.accentSecondary : `${props.theme.colors.accentSecondary}15`};
+    background: ${props => props.$active ? props.theme.colors.accentSecondary : `${props.theme.colors.accentSecondary}15`};
     border-color: ${props => props.theme.colors.accentSecondary};
-    color: ${props => props.active ? 'white' : props.theme.colors.accentSecondary};
+    color: ${props => props.$active ? 'white' : props.theme.colors.accentSecondary};
   }
 `;
 
-const TabContent = styled.div<{ active: boolean; fontSize?: number }>`
-  display: ${props => props.active ? 'block' : 'none'};
+const TabContent = styled.div<{ $active: boolean; $fontSize?: number }>`
+  display: ${props => props.$active ? 'block' : 'none'};
   margin-top: 16px;
   padding: 16px;
   background: ${props => props.theme.colors.surface};
   border-radius: 8px;
   line-height: 1.6;
-  font-size: ${props => props.fontSize || 16}px;
+  font-size: ${props => props.$fontSize || 16}px;
 
   ${media.mobile} {
     padding: 12px;
-    font-size: ${props => Math.max((props.fontSize || 16) - 2, 14)}px;
+    font-size: ${props => Math.max((props.$fontSize || 16) - 2, 14)}px;
     margin-top: 12px;
   }
 `;
 
-const DiscursiveAnswer = styled.textarea<{ fontSize?: number }>`
+const DiscursiveAnswer = styled.textarea<{ $fontSize?: number }>`
   width: 100%;
   min-height: 150px;
   padding: 12px;
   border: 1px solid ${props => props.theme.colors.border};
   border-radius: 8px;
   font-family: inherit;
-  font-size: ${props => props.fontSize || 14}px;
+  font-size: ${props => props.$fontSize || 14}px;
   line-height: 1.5;
   resize: vertical;
   margin-bottom: 12px;
@@ -903,7 +1456,7 @@ const DiscursiveAnswer = styled.textarea<{ fontSize?: number }>`
   ${media.mobile} {
     min-height: 120px;
     padding: 10px;
-    font-size: ${props => Math.max((props.fontSize || 14) - 1, 13)}px;
+    font-size: ${props => Math.max((props.$fontSize || 14) - 1, 13)}px;
   }
 
   &:hover {
@@ -1209,16 +1762,493 @@ const ModalContent = styled(Card)`
   }
 `;
 
+const initialQuestionFilters: QuestionFilters = {
+  texto: '',
+  disciplina: [],
+  assunto: [],
+  banca: [],
+  orgao: [],
+  cargo: [],
+  concurso: [],
+  tipo_questao: [],
+  correcao_questao: [],
+  excluirAnulada: false,
+  excluirDesatualizada: false
+};
+
+const DISCIPLINE_OPTIONS = [
+  'administracao-de-recursos-materiais',
+  'administracao-geral-e-publica',
+  'afo-direito-financeiro-e-contabilidade-publica',
+  'analise-das-demonstracoes-contabeis',
+  'antropologia',
+  'arquitetura',
+  'arquivologia',
+  'artes-e-musica',
+  'atualidades-e-conhecimentos-gerais',
+  'auditoria-governamental-e-controle',
+  'auditoria-privada',
+  'biblioteconomia',
+  'biologia-e-biomedicina',
+  'ciencias-politicas',
+  'ciencias-sociais',
+  'comunicacao-social',
+  'contabilidade-de-custos',
+  'contabilidade-de-instituicoes-financeiras-e-atuariais',
+  'contabilidade-geral',
+  'criminalistica-e-medicina-legal',
+  'criminologia',
+  'defesa-civil',
+  'desenho-tecnico-e-artes-graficas',
+  'direito-administrativo',
+  'direito-agrario',
+  'direito-civil',
+  'direito-constitucional',
+  'direito-cultural-desportivo-e-da-comunicacao',
+  'direito-da-crianca-e-do-adolescente',
+  'direito-digital',
+  'direito-do-consumidor',
+  'direito-do-trabalho',
+  'direito-economico',
+  'direito-educacional',
+  'direito-eleitoral',
+  'direito-empresarial-comercial',
+  'direito-internacional-publico-e-privado',
+  'direito-maritimo-portuario-e-aeronautico',
+  'direito-notarial-e-registral',
+  'direito-penal-militar',
+  'direito-previdenciario',
+  'direito-processual-civil',
+  'direito-processual-do-trabalho',
+  'direito-processual-penal',
+  'direito-processual-penal-militar',
+  'direito-sanitario-e-saude',
+  'direito-tributario',
+  'direito-urbanistico',
+  'direitos-humanos',
+  'economia-e-financas-publicas',
+  'educacao-fisica',
+  'enfermagem',
+  'engenharia-agronomica-e-agricola',
+  'engenharia-ambiental-florestal-e-sanitaria',
+  'engenharia-civil-e-auditoria-de-obras',
+  'engenharia-de-producao',
+  'engenharia-eletrica-e-eletronica',
+  'engenharia-mecanica',
+  'estatistica',
+  'etica-no-servico-publico',
+  'farmacia',
+  'filosofia-e-teologia',
+  'financas-e-conhecimentos-bancarios',
+  'fisica',
+  'fisioterapia',
+  'fonoaudiologia',
+  'geografia',
+  'geologia-e-engenharia-de-minas',
+  'gestao-de-projetos-pmbok',
+  'historia',
+  'informatica',
+  'legislacao-aduaneira',
+  'legislacao-civil-e-processual-civil-especial',
+  'legislacao-das-casas-legislativas',
+  'legislacao-de-transito-e-transportes',
+  'legislacao-e-etica-profissional',
+  'legislacao-especifica-das-agencias-reguladoras',
+  'legislacao-especifica-das-defensorias-publicas',
+  'legislacao-especifica-dos-ministerios-publicos',
+  'legislacao-especifica-dos-tribunais-estaduais',
+  'legislacao-especifica-dos-tribunais-federais',
+  'legislacao-geral-estadual-e-do-df',
+  'legislacao-geral-municipal',
+  'legislacao-militar',
+  'legislacao-penal-e-processual-penal-especial',
+  'legislacao-tributaria-dos-estados-e-do-distrito-federal',
+  'legislacao-tributaria-dos-municipios',
+  'legislacao-tributaria-federal',
+  'libras-inclusao-e-taquigrafia',
+  'lingua-portuguesa-portugues',
+  'matematica',
+  'matematica-financeira',
+  'medicina',
+  'nutricao-gastronomia-e-engenharia-de-alimentos',
+  'odontologia',
+  'pedagogia',
+  'psicologia',
+  'raciocinio-logico',
+  'redacao-oficial',
+  'relacoes-internacionais-e-comercio-internacional',
+  'secretariado',
+  'seguranca-e-protecao-contra-incendios',
+  'seguranca-e-saude-no-trabalho-sst',
+  'seguranca-privada-e-transportes',
+  'seguranca-publica-e-legislacao-policial',
+  'servicos-gerais',
+  'teoria-geral-filosofia-e-sociologia-juridica',
+  'ti-banco-de-dados',
+  'ti-desenvolvimento-de-sistemas',
+  'ti-engenharia-de-software',
+  'ti-gestao-e-governanca-de-ti',
+  'ti-organizacao-e-arquitetura-dos-computadores',
+  'ti-redes-de-computadores',
+  'ti-seguranca-da-informacao',
+  'ti-sistemas-operacionais',
+  'turismo'
+];
+
+const SUBJECT_OPTIONS_BY_DISCIPLINE: Record<string, string[]> = {
+  'administracao-de-recursos-materiais': [
+    'Administração Patrimonial',
+    'Armazenagem (Almoxarifado)',
+    'Avaliação de Estoques e Custos',
+    'Ciclo, Etapas e Modalidades de Compras',
+    'Compras no Setor Público',
+    'Gestão da cadeia de suprimentos',
+    'Etapas da Classificação de Materiais',
+    'Instrução Normativa nº 205/1998',
+    'Inventário (Materiais)',
+    'Localização de Unidades e Layout (Almoxarifado)',
+    'Lote Econômico de Compras (LEC)',
+    'Modalidades de Transporte',
+    'Movimentação de Materiais',
+    'Noções da Gestão de Compras',
+    'Noções de Administração de Materiais',
+    'Noções de Administração de Materiais no Setor Público',
+    'Noções de Classificação de Materiais',
+    'Noções de Gestão de Estoques',
+    'Noções de Logística',
+    'Noções de Recebimento e Armazenagem',
+    'Outros Assuntos de Administração de Materiais',
+    'Planejamento das Necessidades de Materiais - MRP',
+    'Planejamento e Controle de Estoques',
+    'Previsão para Estoques',
+    'Recebimento',
+    'Sistemas de Reposição e Níveis de Estoque',
+    'Sistemas Logísticos',
+    'Tipos de Classificação e Identificação de Materiais',
+    'Transportes e Distribuição de Materiais'
+  ]
+};
+
+const BANK_OPTIONS = [
+  'ADM&TEC',
+  'AMAUC',
+  'AOCP',
+  'Ápice',
+  'CCMPM',
+  'CEBRASPE (CESPE)',
+  'CEFETBAHIA',
+  'CEPS UFPA',
+  'CESGRANRIO',
+  'CETAP',
+  'CETRO',
+  'CEV UECE',
+  'CEV URCA',
+  'Com. Conc. MPE BA',
+  'Com. Exam. (MPDFT)',
+  'Com. Exam. (MPE AP)',
+  'Com. Exam. (MPE GO)',
+  'Com. Exam. (MPE MA)',
+  'Com. Exam. (MPE MS)',
+  'Com. Exam. (MPE PB)',
+  'Com. Exam. (MPE PR)',
+  'Com. Exam. (MPE RS)',
+  'Com. Exam. (MPE SC)',
+  'Com. Exam. (MPE SP)',
+  'Com. Exam. (MPT)',
+  'Com. Exam. (MPF)',
+  'Com. Exam. (PGE RJ)',
+  'Com. Exam. (TJ SC)',
+  'Com. OAB GO',
+  'CONESUL',
+  'CONSEP',
+  'CONSULPLAN',
+  'CONSULTEC',
+  'CONTEMAX',
+  'COPERVE UFPB',
+  'COPERVE UFSC',
+  'COPESE-UFT',
+  'COPEVE (UFAL)',
+  'CPCC UFES',
+  'CPCON UEPB',
+  'DEIP PMPI',
+  'DES IFSUL',
+  'EDUCA PB',
+  'ESAF',
+  'ESAG',
+  'ESPP',
+  'FACET',
+  'FADESP',
+  'FAFIPA',
+  'FAPERP',
+  'FAPEU',
+  'FAURGS',
+  'FAUSCS',
+  'FCC',
+  'FEPESE',
+  'FGV',
+  'FMP',
+  'FUMARC',
+  'FUNDATEC',
+  'FUNDEP',
+  'FUNIVERSA',
+  'Ganzaroli',
+  'IADES',
+  'IAUPE',
+  'IBADE',
+  'IBFC',
+  'IBGP',
+  'IBRASP',
+  'IDCAP',
+  'IDECAN',
+  'IESES',
+  'IDIB',
+  'IGEDUC',
+  'INAZ do Pará',
+  'INCAB (ex-FUNCAB)',
+  'INSTITUTO ACESSO',
+  'Instituto AOCP',
+  'Instituto CONSULPAM',
+  'Instituto Consulplan',
+  'INSTITUTO IBDO',
+  'Instituto Verbena',
+  'IUDS',
+  'Legalle',
+  'LJ Assessoria',
+  'MSM',
+  'NC UFPR (FUNPAR)',
+  'NCE e FUJB (UFRJ)',
+  'NOSSO RUMO',
+  'OBJETIVA CONCURSOS',
+  'OMNI',
+  'Outras',
+  'PLANEXCON',
+  'PUC PR',
+  'QUADRIX',
+  'SELECON',
+  'SMA-RJ (antiga FJG)',
+  'UEG',
+  'UFMT',
+  'VUNESP'
+];
+
+const CARGO_OPTIONS = [
+  'Administrador (AGU)',
+  'Administrador Judiciário (TJ SP)',
+  'Agente Administrativo (DPE PB)',
+  'Agente Administrativo (DPU)',
+  'Agente de Defensoria Pública (DPE SP)',
+  'Agente Técnico (MPE AM)',
+  'Analista (DPE RS)',
+  'Analista (MPE SC)',
+  'Analista (PGM Nova Iguaçu)',
+  'Analista (TJ SC)',
+  'Analista da Procuradoria (PGE RO)',
+  'Analista do Ministério Público (MPE MG)',
+  'Analista do Ministério Público (MPE RJ)',
+  'Analista do Ministério Público da União',
+  'Analista do Ministério Público de Sergipe',
+  'Analista Judiciário (STF)',
+  'Analista Judiciário (STM)',
+  'Analista Judiciário (TJ AP)',
+  'Analista Judiciário (TJ AL)',
+  'Analista Judiciário (TJ MA)',
+  'Analista Judiciário (TJ PA)',
+  'Analista Judiciário (TJ PI)',
+  'Analista Judiciário (TRE RS)',
+  'Analista Judiciário (TRE AL)',
+  'Analista Judiciário (TJ RO)',
+  'Analista Judiciário (TRF 1ª Região)',
+  'Analista Judiciário (TRF 2ª Região)',
+  'Analista Judiciário (TRF 3ª Região)',
+  'Analista Judiciário (TRF 4ª Região)',
+  'Analista Judiciário (TRT 12ª Região)',
+  'Analista Judiciário (TRT 3ª Região)',
+  'Analista Judiciário (TRT 8ª Região)',
+  'Analista Judiciário (TST)',
+  'Analista Judiciário 01 (TJ ES)',
+  'Analista Judiciário 02 (TJ ES)',
+  'Analista Ministerial (MPE PI)',
+  'Analista Ministerial (MPE TO)',
+  'Analista Técnico (MPE BA)',
+  'Analista Técnico Científico (MPE SP)',
+  'Assessor (MPE RS)',
+  'Assistente de Procuradoria (PGE PE)',
+  'Assistente Judiciário (TJ AM)',
+  'Assistente Técnico de Defensoria (DPE AM)',
+  'Auxiliar Judiciário (TJ AM)',
+  'Auxiliar Judiciário (TJ RR)',
+  'Auxiliar Judiciário (TRT 4ª Região)',
+  'Nacional Unificado (OAB)',
+  'Oficial de Defensoria Pública (DPE SP)',
+  'Procurador da República',
+  'Procurador do Trabalho',
+  'Promotor de Justiça (MPDFT)',
+  'Promotor de Justiça (MPE AC)',
+  'Promotor de Justiça (MPE AP)',
+  'Promotor de Justiça (MPE AM)',
+  'Promotor de Justiça (MPE AL)',
+  'Promotor de Justiça (MPE BA)',
+  'Promotor de Justiça (MPE CE)',
+  'Promotor de Justiça (MPE ES)',
+  'Promotor de Justiça (MPE GO)',
+  'Promotor de Justiça (MPE MA)',
+  'Promotor de Justiça (MPE MG)',
+  'Promotor de Justiça (MPE MT)',
+  'Promotor de Justiça (MPE PB)',
+  'Promotor de Justiça (MPE PE)',
+  'Promotor de Justiça (MPE PI)',
+  'Promotor de Justiça (MPE RO)',
+  'Promotor de Justiça (MPE PR)',
+  'Promotor de Justiça (MPE RN)',
+  'Promotor de Justiça (MPE RR)',
+  'Promotor de Justiça (MPE RS)',
+  'Promotor de Justiça (MPE SE)',
+  'Promotor de Justiça (MPE SC)',
+  'Promotor de Justiça (MPE SP)',
+  'Promotor de Justiça (MPE TO)',
+  'Promotor de Justiça Militar',
+  'Seccional OAB de Goiás',
+  'Seccional OAB do Rio de Janeiro',
+  'Seccional OAB de São Paulo',
+  'Técnico (CNMP)',
+  'Técnico (DPE RS)',
+  'Técnico (PGE RJ)',
+  'Técnico de Procuradoria (Pref Niterói)',
+  'Técnico do Ministério Público (MPE AL)',
+  'Técnico do Ministério Público da União',
+  'Técnico Judiciário (CNJ)',
+  'Técnico Judiciário (TJ BA)',
+  'Técnico Judiciário (TRE GO)',
+  'Técnico Judiciário (TRE MT)',
+  'Técnico Judiciário (TRE MS)',
+  'Técnico Judiciário (TRE RJ)',
+  'Técnico Judiciário (TRE RN)',
+  'Técnico Judiciário (TRT 10ª Região)',
+  'Técnico Judiciário (TRT 17ª Região)',
+  'Técnico Judiciário (TRT 6ª Região)',
+  'Técnico Judiciário (TRT 8ª Região)',
+  'Técnico Judiciário (PGDF)',
+  'Técnico Ministerial (MPE PI)',
+  'Técnico Superior Especializado (DPE RJ)'
+];
+
+const ORGAO_OPTIONS = [
+  'AGU',
+  'CNJ',
+  'CNMP',
+  'DPE AM',
+  'DPE MS',
+  'DPE PB',
+  'DPE PR',
+  'DPE RJ',
+  'DPE RO',
+  'DPE RS',
+  'DPE SP',
+  'DPU',
+  'MPE AC',
+  'MPDFT',
+  'MPE AL',
+  'MPE AM',
+  'MPE AP',
+  'MPE BA',
+  'MPE CE',
+  'MPE ES',
+  'MPE GO',
+  'MPE MA',
+  'MPE MG',
+  'MPE MS',
+  'MPE MT',
+  'MPE PA',
+  'MPE PB',
+  'MPE PE',
+  'MPE PI',
+  'MPE PR',
+  'MPE RJ',
+  'MPE RN',
+  'MPE RO',
+  'MPE RR',
+  'MPE RS',
+  'MPE SC',
+  'MPE SE',
+  'MPE SP',
+  'MPE TO',
+  'MPF',
+  'MPM',
+  'MPT',
+  'MPU',
+  'OAB',
+  'PG DF',
+  'PGE MT',
+  'PGE PA',
+  'PGE PE',
+  'PGE RJ',
+  'PGE RO',
+  'Pref Niterói',
+  'Pref Nova Iguaçu',
+  'STF',
+  'STM',
+  'TJ AC',
+  'TJ AL',
+  'TJ AM',
+  'TJ AP',
+  'TJ BA',
+  'TJ CE',
+  'TJ ES',
+  'TJ MA',
+  'TJ MT',
+  'TJ PA',
+  'TJ PB',
+  'TJ PI',
+  'TJ RR',
+  'TJ RO',
+  'TJ RS',
+  'TJ SC',
+  'TJ SP',
+  'TJ TO',
+  'TJM MG',
+  'TRE AL',
+  'TRE GO',
+  'TRE MS',
+  'TRE MT',
+  'TRE PA',
+  'TRE PB',
+  'TRE PI',
+  'TRE RJ',
+  'TRE RN',
+  'TRE RS',
+  'TRF 2',
+  'TRF 1',
+  'TRF 3',
+  'TRF 4',
+  'TRT 10',
+  'TRT 12',
+  'TRT 16',
+  'TRT 17',
+  'TRT 2',
+  'TRT 21',
+  'TRT 3',
+  'TRT 6',
+  'TRT 4',
+  'TRT 8',
+  'TRT 9',
+  'TSE',
+  'TST'
+];
+
 const SistemaQuestoes: React.FC = () => {
   const [activeTab, setActiveTab] = useState('objective');
   const [activeQuestionTab, setActiveQuestionTab] = useState('explanation');
-  const [selectedFilters, setSelectedFilters] = useState<{ [key: string]: string }>({
-    discipline: '',
-    subject: '',
-    institution: '',
-    year: '',
-    difficulty: '',
-    status: ''
+  const [filters, setFilters] = useState<QuestionFilters>(initialQuestionFilters);
+  const [appliedFilters, setAppliedFilters] = useState<QuestionFilters>(initialQuestionFilters);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [openFilter, setOpenFilter] = useState<MultiFilterKey | null>(null);
+  const [filterSearch, setFilterSearch] = useState<Record<MultiFilterKey, string>>({
+    disciplina: '',
+    assunto: '',
+    banca: '',
+    orgao: '',
+    cargo: '',
+    concurso: ''
   });
   const [simulationFilters, setSimulationFilters] = useState<{ [key: string]: string }>({
     discipline: '',
@@ -1238,7 +2268,23 @@ const SistemaQuestoes: React.FC = () => {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
-  const [hasLoadedQuestions, setHasLoadedQuestions] = useState(false);
+  const [questionsCount, setQuestionsCount] = useState<number | null>(null);
+  const [questionsCountLoading, setQuestionsCountLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [filterOptions, setFilterOptions] = useState<QuestionFilterOptions>({
+    disciplina: [],
+    assunto: [],
+    banca: [],
+    orgao: [],
+    cargo: [],
+    concurso: [],
+    tipo_questao: [],
+    correcao_questao: [],
+    anulada: [],
+    desatualizada: []
+  });
+  const [filtersLoading, setFiltersLoading] = useState(false);
+  const [filtersError, setFiltersError] = useState<string | null>(null);
   const [performancePeriod, setPerformancePeriod] = useState('all');
   const [performanceView, setPerformanceView] = useState<'bar' | 'line'>('bar');
   const [performanceSummary, setPerformanceSummary] = useState<PerformanceSummary>({
@@ -1255,6 +2301,7 @@ const SistemaQuestoes: React.FC = () => {
 
   const minFontSize = 12;
   const maxFontSize = 24;
+  const pageSize = 10;
 
   const increaseFontSize = () => {
     if (fontSize < maxFontSize) {
@@ -1268,7 +2315,110 @@ const SistemaQuestoes: React.FC = () => {
     }
   };
 
-  const loadQuestions = useCallback(async () => {
+  const updateFilter = (field: keyof QuestionFilters, value: string | boolean) => {
+    setFilters(prev => ({ ...prev, [field]: value }));
+  };
+
+  const updateMultiFilter = (field: MultiFilterKey, value: string) => {
+    setFilters(prev => {
+      const current = prev[field];
+      const next = current.includes(value)
+        ? current.filter(item => item !== value)
+        : [...current, value];
+      return {
+        ...prev,
+        [field]: next,
+        ...(field === 'disciplina' ? { assunto: [] } : {})
+      };
+    });
+  };
+
+  const removeMultiFilterValue = (field: MultiFilterKey, value: string) => {
+    setFilters(prev => ({
+      ...prev,
+      [field]: prev[field].filter(item => item !== value),
+      ...(field === 'disciplina' ? { assunto: [] } : {})
+    }));
+  };
+
+  const getSubjectOptions = () => {
+    if (!filters.disciplina.length) return filterOptions.assunto;
+    const mapped = filters.disciplina.flatMap(
+      (discipline) => SUBJECT_OPTIONS_BY_DISCIPLINE[discipline] || []
+    );
+    return mapped.length ? mapped : filterOptions.assunto;
+  };
+
+  const toggleFilterValue = (
+    field: 'tipo_questao' | 'correcao_questao',
+    value: string
+  ) => {
+    setFilters(prev => {
+      const current = prev[field];
+      const next = current.includes(value)
+        ? current.filter(item => item !== value)
+        : [...current, value];
+      return {
+        ...prev,
+        [field]: next
+      };
+    });
+  };
+
+  const applyFilters = () => {
+    setAppliedFilters(filters);
+    setCurrentPage(1);
+  };
+
+  const clearFilters = () => {
+    setFilters(initialQuestionFilters);
+    setAppliedFilters(initialQuestionFilters);
+    setCurrentPage(1);
+  };
+
+  useEffect(() => {
+    if (!openFilter) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-filter-dropdown]')) return;
+      setOpenFilter(null);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [openFilter]);
+
+  const loadFilterOptions = useCallback(async () => {
+    setFiltersLoading(true);
+    setFiltersError(null);
+    try {
+      const token =
+        typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (!token) {
+        throw new Error('Token não encontrado. Faça login para carregar filtros.');
+      }
+      const headers: Record<string, string> = {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`
+      };
+      const response = await fetch(QUESTION_FILTERS_URL, { headers });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Falha ao carregar filtros (${response.status})`);
+      }
+      const payload = await response.json();
+      setFilterOptions(normalizeQuestionFilters(payload));
+    } catch (requestError) {
+      setFiltersError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Erro ao carregar filtros.'
+      );
+    } finally {
+      setFiltersLoading(false);
+    }
+  }, []);
+
+  const loadQuestions = useCallback(async (currentFilters: QuestionFilters, page: number) => {
     setQuestionsLoading(true);
     setQuestionsError(null);
     try {
@@ -1276,21 +2426,43 @@ const SistemaQuestoes: React.FC = () => {
       const token =
         typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
       if (token) headers.Authorization = `Bearer ${token}`;
-      const response = await fetch(QUESTIONS_URL, { headers });
+      const query = buildQuestionQuery(currentFilters, page);
+      const response = await fetch(`${QUESTIONS_URL}${query}`, { headers });
       if (!response.ok) {
-        throw new Error(`Falha ao carregar questoes (${response.status})`);
+        throw new Error(`Falha ao carregar questões (${response.status})`);
       }
       const payload = await response.json();
       setQuestions(normalizeQuestionCollection(payload));
-      setHasLoadedQuestions(true);
     } catch (requestError) {
       setQuestionsError(
         requestError instanceof Error
           ? requestError.message
-          : 'Erro ao carregar questoes.'
+          : 'Erro ao carregar questões.'
       );
     } finally {
       setQuestionsLoading(false);
+    }
+  }, []);
+
+  const loadQuestionsCount = useCallback(async (currentFilters: QuestionFilters) => {
+    setQuestionsCountLoading(true);
+    try {
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      const token =
+        typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const query = buildQuestionQuery(currentFilters);
+      const response = await fetch(`${QUESTIONS_COUNT_URL}${query}`, { headers });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Falha ao carregar contador (${response.status})`);
+      }
+      const payload = await response.json();
+      setQuestionsCount(normalizeQuestionsCount(payload));
+    } catch (requestError) {
+      setQuestionsCount(null);
+    } finally {
+      setQuestionsCountLoading(false);
     }
   }, []);
 
@@ -1301,7 +2473,7 @@ const SistemaQuestoes: React.FC = () => {
       const token =
         typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
       if (!token) {
-        throw new Error('Token nao encontrado. Faca login para ver desempenho.');
+        throw new Error('Token não encontrado. Faça login para ver desempenho.');
       }
 
       const endDate = new Date();
@@ -1361,19 +2533,37 @@ const SistemaQuestoes: React.FC = () => {
 
   useEffect(() => {
     if (activeTab !== 'objective') return;
-    if (hasLoadedQuestions || questionsLoading) return;
-    void loadQuestions();
-  }, [activeTab, hasLoadedQuestions, loadQuestions, questionsLoading]);
+    void loadFilterOptions();
+  }, [activeTab, loadFilterOptions]);
+
+  useEffect(() => {
+    if (activeTab !== 'objective') return;
+    if (questionsLoading) return;
+    void loadQuestions(appliedFilters, currentPage);
+  }, [activeTab, appliedFilters, currentPage, loadQuestions]);
+
+  useEffect(() => {
+    if (activeTab !== 'objective') return;
+    void loadQuestionsCount(appliedFilters);
+  }, [activeTab, appliedFilters, loadQuestionsCount]);
 
   useEffect(() => {
     if (activeTab !== 'performance') return;
     void loadPerformanceSummary(performancePeriod);
   }, [activeTab, loadPerformanceSummary, performancePeriod]);
 
+  useEffect(() => {
+    if (!questionsCount) return;
+    const totalPages = Math.max(1, Math.ceil(questionsCount / pageSize));
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, pageSize, questionsCount]);
+
   const subjectsByDiscipline: { [key: string]: string[] } = {
-    'civil': ['LINDB', 'Domic├¡lio'],
+    'civil': ['LINDB', 'Domicílio'],
     'constitucional': ['Poder Legislativo', 'Controle de Constitucionalidade'],
-    'penal': ['Teoria Geral do Delito', 'Pris├úo Preventiva']
+    'penal': ['Teoria Geral do Delito', 'Prisão Preventiva']
   };
 
   const mockDiscursiveQuestions: DiscursiveQuestion[] = [
@@ -1385,17 +2575,17 @@ const SistemaQuestoes: React.FC = () => {
       institution: 'OAB',
       exam: 'XXXVII Exame de Ordem',
       question: 'Discorra sobre os elementos da responsabilidade civil e suas modalidades.',
-      referenceAnswer: 'A responsabilidade civil possui tr├¬s elementos essenciais: conduta (a├º├úo ou omiss├úo), dano e nexo causal...',
+      referenceAnswer: 'A responsabilidade civil possui três elementos essenciais: conduta (ação ou omissão), dano e nexo causal...',
       answered: false
     }
   ];
 
   const mockExams = [
-    { id: '1', name: 'FGV OAB 44┬║ Exame', year: 2025 },
-    { id: '2', name: 'FGV OAB 43┬║ Exame', year: 2025 },
-    { id: '3', name: 'FGV OAB 42┬║ Exame', year: 2024 },
-    { id: '4', name: 'FGV OAB 41┬║ Exame', year: 2024 },
-    { id: '5', name: 'FGV OAB 40┬║ Exame', year: 2024 },
+    { id: '1', name: 'FGV OAB 44º Exame', year: 2025 },
+    { id: '2', name: 'FGV OAB 43º Exame', year: 2025 },
+    { id: '3', name: 'FGV OAB 42º Exame', year: 2024 },
+    { id: '4', name: 'FGV OAB 41º Exame', year: 2024 },
+    { id: '5', name: 'FGV OAB 40º Exame', year: 2024 },
     { id: '6', name: 'FGV OAB XXXIX Exame', year: 2023 },
     { id: '7', name: 'FGV OAB XXXVIII Exame', year: 2023 },
     { id: '8', name: 'FGV OAB XXXVII Exame', year: 2023 },
@@ -1422,7 +2612,7 @@ const SistemaQuestoes: React.FC = () => {
   ];
   const pieData = [
     { 
-      name: 'Questoes Corretas', 
+      name: 'Questões Corretas', 
       value: performanceSummary.correctAnswers, 
       percentage: performanceSummary.totalQuestions
         ? Math.round((performanceSummary.correctAnswers / performanceSummary.totalQuestions) * 100)
@@ -1430,7 +2620,7 @@ const SistemaQuestoes: React.FC = () => {
       color: '#22c55e' 
     },
     { 
-      name: 'Questoes Incorretas', 
+      name: 'Questões Incorretas', 
       value: performanceSummary.incorrectAnswers, 
       percentage: performanceSummary.totalQuestions
         ? Math.round((performanceSummary.incorrectAnswers / performanceSummary.totalQuestions) * 100)
@@ -1439,7 +2629,7 @@ const SistemaQuestoes: React.FC = () => {
     }
   ];
 
-  // Fun├º├úo personalizada para renderizar labels no gr├ífico de rosca
+  // Função personalizada para renderizar labels no gráfico de rosca
   const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percentage }: CustomLabelProps) => {
     const RADIAN = Math.PI / 180;
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
@@ -1538,360 +2728,513 @@ const SistemaQuestoes: React.FC = () => {
     setShowNotebookModal(false);
   };
 
-  const handleDisciplineChange = (discipline: string, isSimulation: boolean = false) => {
-    if (isSimulation) {
-      setSimulationFilters(prev => ({
-        ...prev,
-        discipline,
-        subject: ''
-      }));
-    } else {
-      setSelectedFilters(prev => ({
-        ...prev,
-        discipline,
-        subject: ''
-      }));
-    }
+  const handleSimulationDisciplineChange = (discipline: string) => {
+    setSimulationFilters(prev => ({
+      ...prev,
+      discipline,
+      subject: ''
+    }));
   };
 
   const renderObjectiveQuestions = () => {
-    const disciplineFilterMap: Record<string, string[]> = {
-      civil: ['direito civil', 'civil'],
-      constitucional: ['direito constitucional', 'constitucional'],
-      penal: ['direito penal', 'penal']
-    };
-    const institutionFilterMap: Record<string, string[]> = {
-      fgv: ['fgv'],
-      cespe: ['cespe', 'cebraspe']
-    };
-    const normalizedDiscipline = normalizeFilterValue(selectedFilters.discipline);
-    const normalizedSubject = normalizeFilterValue(selectedFilters.subject);
-    const normalizedInstitution = normalizeFilterValue(selectedFilters.institution);
-    const normalizedYear = selectedFilters.year.trim();
-    const normalizedDifficulty = normalizeFilterValue(selectedFilters.difficulty);
+    const totalCount = questionsCount ?? questions.length;
+    const countLabel = questionsCountLoading
+      ? 'Carregando...'
+      : `${totalCount.toLocaleString('pt-BR')} questões encontradas`;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const subjectOptions = getSubjectOptions();
+    const selectedFilterGroups: Array<{
+      key: MultiFilterKey;
+      label: string;
+      values: string[];
+    }> = [
+      { key: 'disciplina', label: 'Disciplina', values: filters.disciplina },
+      { key: 'assunto', label: 'Assunto', values: filters.assunto },
+      { key: 'banca', label: 'Banca', values: filters.banca },
+      { key: 'orgao', label: 'Instituição', values: filters.orgao },
+      { key: 'cargo', label: 'Cargo', values: filters.cargo },
+      { key: 'concurso', label: 'Ano', values: filters.concurso }
+    ];
+    const hasSelectedFilters = selectedFilterGroups.some(group => group.values.length > 0);
 
-    const filteredQuestions = questions.filter((question) => {
-      if (normalizedDiscipline) {
-        const allowed = disciplineFilterMap[normalizedDiscipline] || [];
-        const normalizedQuestionDiscipline = normalizeFilterValue(question.discipline);
-        if (!allowed.some((entry) => normalizedQuestionDiscipline.includes(entry))) {
-          return false;
-        }
-      }
-      if (normalizedSubject) {
-        const normalizedQuestionSubject = normalizeFilterValue(question.subject);
-        if (!normalizedQuestionSubject.includes(normalizedSubject)) {
-          return false;
-        }
-      }
-      if (normalizedInstitution) {
-        const allowed = institutionFilterMap[normalizedInstitution] || [];
-        const normalizedQuestionInstitution = normalizeFilterValue(question.institution);
-        if (!allowed.some((entry) => normalizedQuestionInstitution.includes(entry))) {
-          return false;
-        }
-      }
-      if (normalizedYear) {
-        if (String(question.year) !== normalizedYear) {
-          return false;
-        }
-      }
-      if (normalizedDifficulty) {
-        if (normalizeFilterValue(question.difficulty) !== normalizedDifficulty) {
-          return false;
-        }
-      }
-      return true;
-    });
+    const renderMultiSelect = (
+      field: MultiFilterKey,
+      label: string,
+      options: string[],
+      placeholder: string
+    ) => {
+      const selectedValues = filters[field];
+      const searchValue = filterSearch[field] || '';
+      const normalizedSearch = normalizeFilterValue(searchValue);
+      const filteredOptions = options.filter((option) =>
+        normalizeFilterValue(option).includes(normalizedSearch)
+      );
+      const displayText = selectedValues.length
+        ? selectedValues.length === 1
+          ? selectedValues[0]
+          : `${selectedValues.length} selecionados`
+        : placeholder;
+
+      return (
+        <FilterGroup>
+          <label>{label}</label>
+          <MultiSelectWrapper data-filter-dropdown>
+            <MultiSelectButton
+              type="button"
+              $open={openFilter === field}
+              onClick={() => setOpenFilter(openFilter === field ? null : field)}
+            >
+              <span>{displayText}</span>
+              <ChevronDown size={16} />
+            </MultiSelectButton>
+            {openFilter === field && (
+              <MultiSelectMenu>
+                <MultiSelectSearch
+                  type="text"
+                  placeholder="Busca rápida"
+                  value={searchValue}
+                  onChange={(e) =>
+                    setFilterSearch(prev => ({ ...prev, [field]: e.target.value }))
+                  }
+                />
+                <MultiSelectList>
+                  {filteredOptions.map((option, index) => {
+                    const isChecked = selectedValues.includes(option);
+                    return (
+                      <MultiSelectOption key={`${option}-${index}`}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => updateMultiFilter(field, option)}
+                        />
+                        <span>{option}</span>
+                      </MultiSelectOption>
+                    );
+                  })}
+                  {filteredOptions.length === 0 && (
+                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                      Nenhum resultado
+                    </span>
+                  )}
+                </MultiSelectList>
+              </MultiSelectMenu>
+            )}
+          </MultiSelectWrapper>
+        </FilterGroup>
+      );
+    };
 
     return (
       <React.Fragment>
-        <FiltersContainer>
-        <FilterGroup>
-          <label>Disciplina</label>
-          <select 
-            value={selectedFilters.discipline} 
-            onChange={(e) => handleDisciplineChange(e.target.value)}
-          >
-            <option value="">Todas</option>
-            <option value="civil">Direito Civil</option>
-            <option value="constitucional">Direito Constitucional</option>
-            <option value="penal">Direito Penal</option>
-          </select>
-        </FilterGroup>
+        <FiltersCard>
+          <FiltersGrid>
+            <FilterGroup>
+              <label>Pesquisar</label>
+              <input
+                type="text"
+                placeholder="Pesquisar"
+                value={filters.texto}
+                onChange={(e) => updateFilter('texto', e.target.value)}
+              />
+            </FilterGroup>
 
-        <FilterGroup>
-          <label>Assunto</label>
-          <select 
-            value={selectedFilters.subject} 
-            onChange={(e) => setSelectedFilters(prev => ({...prev, subject: e.target.value}))}
-            disabled={!selectedFilters.discipline}
-          >
-            <option value="">Todos</option>
-            {selectedFilters.discipline && subjectsByDiscipline[selectedFilters.discipline]?.map(subject => (
-              <option key={subject} value={subject}>{subject}</option>
-            ))}
-          </select>
-        </FilterGroup>
-        
-        <FilterGroup>
-          <label>Institui├º├úo</label>
-          <select 
-            value={selectedFilters.institution} 
-            onChange={(e) => setSelectedFilters(prev => ({...prev, institution: e.target.value}))}
-          >
-            <option value="">Todas</option>
-            <option value="fgv">FGV</option>
-            <option value="cespe">CESPE</option>
-          </select>
-        </FilterGroup>
-        
-        <FilterGroup>
-          <label>Ano</label>
-          <select 
-            value={selectedFilters.year} 
-            onChange={(e) => setSelectedFilters(prev => ({...prev, year: e.target.value}))}
-          >
-            <option value="">Todos</option>
-            <option value="2023">2023</option>
-            <option value="2022">2022</option>
-          </select>
-        </FilterGroup>
-        
-        <FilterGroup>
-          <label>Dificuldade</label>
-          <select 
-            value={selectedFilters.difficulty} 
-            onChange={(e) => setSelectedFilters(prev => ({...prev, difficulty: e.target.value}))}
-          >
-            <option value="">Todas</option>
-            <option value="easy">F├ícil</option>
-            <option value="medium">M├®dio</option>
-            <option value="hard">Dif├¡cil</option>
-          </select>
-        </FilterGroup>
+            {renderMultiSelect('disciplina', 'Disciplina', DISCIPLINE_OPTIONS, 'Todas')}
+            {renderMultiSelect('assunto', 'Assunto', subjectOptions, 'Todos')}
+            {renderMultiSelect('banca', 'Banca', BANK_OPTIONS, 'Todas')}
+            {renderMultiSelect('orgao', 'Instituição', ORGAO_OPTIONS, 'Todas')}
+            {renderMultiSelect('cargo', 'Cargo', CARGO_OPTIONS, 'Todos')}
+            {renderMultiSelect(
+              'concurso',
+              'Ano',
+              Array.from({ length: 2025 - 1996 + 1 }, (_, i) => String(2025 - i)),
+              'Todos'
+            )}
+          </FiltersGrid>
 
-        <FontControlGroup>
-          <label>Tamanho da Fonte</label>
-          <div className="font-controls">
-            <button 
-              className="font-button"
-              onClick={decreaseFontSize}
-              disabled={fontSize <= minFontSize}
-              title="Diminuir fonte"
-            >
-              <Minus size={14} />
-            </button>
-            <span className="font-size">{fontSize}px</span>
-            <button 
-              className="font-button"
-              onClick={increaseFontSize}
-              disabled={fontSize >= maxFontSize}
-              title="Aumentar fonte"
-            >
-              <Plus size={14} />
-            </button>
-          </div>
-        </FontControlGroup>
+          {showAdvancedFilters && (
+            <AdvancedFilters>
+              {filterOptions.correcao_questao.length > 0 && (
+                <AdvancedFiltersRow>
+                  <AdvancedFiltersLabel>Minhas questões:</AdvancedFiltersLabel>
+                  <FilterChips>
+                    {filterOptions.correcao_questao.map((option, index) => (
+                      <FilterChip
+                        key={`${option}-${index}`}
+                        $active={filters.correcao_questao.includes(option)}
+                        onClick={() => toggleFilterValue('correcao_questao', option)}
+                      >
+                        {formatCorrecaoLabel(option)}
+                      </FilterChip>
+                    ))}
+                  </FilterChips>
+                </AdvancedFiltersRow>
+              )}
 
-        <Button variant="outline" onClick={() => setSelectedFilters({discipline: '', subject: '', institution: '', year: '', difficulty: '', status: ''})}>
-          Limpar Filtros
-        </Button>
-      </FiltersContainer>
+              {filterOptions.tipo_questao.length > 0 && (
+                <AdvancedFiltersRow>
+                  <AdvancedFiltersLabel>Tipo de questão:</AdvancedFiltersLabel>
+                  <FilterChips>
+                    {filterOptions.tipo_questao.map((option, index) => (
+                      <FilterChip
+                        key={`${option}-${index}`}
+                        $active={filters.tipo_questao.includes(option)}
+                        onClick={() => toggleFilterValue('tipo_questao', option)}
+                      >
+                        {formatTipoQuestaoLabel(option)}
+                      </FilterChip>
+                    ))}
+                  </FilterChips>
+                </AdvancedFiltersRow>
+              )}
 
-      <QuestionCounter>
-        {filteredQuestions.length} questões encontradas
-        {!isSubscriber && ` ÔÇó ${5 - questionsAnswered} questões restantes (gratuitas)`}
-      </QuestionCounter>
-
-      {questionsLoading ? (
-        <Card>Carregando questoes...</Card>
-      ) : questionsError ? (
-        <Card>{questionsError}</Card>
-      ) : filteredQuestions.length === 0 ? (
-        <Card>Nenhuma questao encontrada.</Card>
-      ) : (
-        filteredQuestions.map((question, index) => {
-        const isAnswered = answeredQuestions[question.id];
-        const userAnswer = selectedAnswers[question.id];
-        const isCorrect = userAnswer === question.correctAnswer;
-
-        return (
-          <QuestionItem 
-            key={question.id}
-            answered={isAnswered}
-            correct={isCorrect}
-            fontSize={fontSize}
-          >
-            <QuestionHeader>
-              <div className="question-info">
-                <div className="meta">
-                  <span className="tag">{question.discipline}</span>
-                  <span className="tag">{question.subject}</span>
-                  {(question.institution || question.year) && (
-                    <span className="tag">
-                      {[question.institution, question.year || '']
-                        .filter(Boolean)
-                        .join(' ')}
-                    </span>
-                  )}
-                  <span className="tag">{getDifficultyLabel(question.difficulty)}</span>
-                </div>
-              </div>
-            </QuestionHeader>
-
-            <QuestionText fontSize={fontSize}>
-              <strong>Questão {index + 1}:</strong> {question.question}
-            </QuestionText>
-            <div style={{ height: 12 }} />
-
-            {question.type === 'multiple' && question.options && (
-              <OptionsContainer>
-                {question.options.map((option, optionIndex) => {
-                  const letter = String.fromCharCode(97 + optionIndex);
-                  const isSelected = selectedAnswers[question.id] === letter;
-                  const isStriked = strikedOptions[question.id]?.includes(optionIndex);
-                  const isCorrectOption = isAnswered && question.correctAnswer === letter;
-                  const isIncorrectOption = isAnswered && isSelected && question.correctAnswer !== letter;
-
-                  return (
-                    <Option
-                      key={optionIndex}
-                      selected={isSelected}
-                      correct={isCorrectOption}
-                      incorrect={isIncorrectOption}
-                      striked={isStriked}
-                      fontSize={fontSize}
-                      onClick={() => !isAnswered && handleAnswerSelect(question.id, letter)}
+              {(filterOptions.desatualizada.length > 0 || filterOptions.anulada.length > 0) && (
+                <AdvancedFiltersRow>
+                  <AdvancedFiltersLabel>Excluir questões:</AdvancedFiltersLabel>
+                  <FilterChips>
+                    <FilterChip
+                      $active={filters.excluirDesatualizada}
+                      onClick={() =>
+                        updateFilter('excluirDesatualizada', !filters.excluirDesatualizada)
+                      }
                     >
-                      <div className="option-letter">{letter}</div>
-                      <div className="option-text">{option}</div>
-                      {!isAnswered && (
-                        <button
-                          className="strike-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleStrikeOption(question.id, optionIndex);
-                          }}
+                      Desatualizadas
+                    </FilterChip>
+                    <FilterChip
+                      $active={filters.excluirAnulada}
+                      onClick={() => updateFilter('excluirAnulada', !filters.excluirAnulada)}
+                    >
+                      Anuladas
+                    </FilterChip>
+                  </FilterChips>
+                </AdvancedFiltersRow>
+              )}
+            </AdvancedFilters>
+          )}
+
+          {hasSelectedFilters && (
+            <SelectedFilters>
+              {selectedFilterGroups.map(group => (
+                group.values.length ? (
+                  <AdvancedFiltersRow key={group.key}>
+                    <AdvancedFiltersLabel>{group.label}:</AdvancedFiltersLabel>
+                    <FilterChips>
+                      {group.values.map((value) => (
+                        <FilterChip
+                          key={`${group.key}-${value}`}
+                          $active
+                          onClick={() => removeMultiFilterValue(group.key, value)}
                         >
-                          <Scissors size={12} />
-                        </button>
-                      )}
-                    </Option>
-                  );
-                })}
-              </OptionsContainer>
-            )}
-
-            {!isAnswered && (
-              <AnswerButton 
-                onClick={() => handleAnswerSubmit(question.id)}
-                disabled={!selectedAnswers[question.id]}
-              >
-                Responder
-              </AnswerButton>
-            )}
-
-            {isAnswered && (
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '8px', 
-                background: isCorrect ? '#22c55e15' : '#db302615',
-                color: isCorrect ? '#22c55e' : '#db3026',
-                fontWeight: '600',
-                marginBottom: '16px'
-              }}>
-                {isCorrect ? '✓ Resposta Correta!' : '✗ Resposta Incorreta'}
-              </div>
-            )}
-
-            {isAnswered && (
-              <div style={{ 
-                padding: '12px', 
-                borderRadius: '8px', 
-                background: '#f8fafc',
-                color: '#0f172a',
-                marginBottom: '16px'
-              }}>
-                <strong>Gabarito:</strong>{' '}
-                {question.correctAnswer
-                  ? question.correctAnswer.toUpperCase()
-                  : 'Nao informado'}
-              </div>
-            )}
-
-            <QuestionTabs>
-              {questionTabs.map(tab => (
-                <QuestionTab
-                  key={tab.id}
-                  active={activeQuestionTab === tab.id}
-                  onClick={() => setActiveQuestionTab(tab.id)}
-                >
-                  <tab.icon size={14} />
-                  {tab.label}
-                </QuestionTab>
+                          {value}
+                          <X size={12} />
+                        </FilterChip>
+                      ))}
+                    </FilterChips>
+                  </AdvancedFiltersRow>
+                ) : null
               ))}
-            </QuestionTabs>
+            </SelectedFilters>
+          )}
 
-            {questionTabs.map(tab => (
-              <TabContent key={tab.id} active={activeQuestionTab === tab.id} fontSize={fontSize}>
-                {tab.id === 'explanation' && (
-                  <div>
-                    {!isSubscriber ? (
-                      <div>
-                        <p>­ƒöÆ Conte├║do exclusivo para assinantes</p>
-                        <Button onClick={() => setShowUpgradeModal(true)}>
-                          Fazer upgrade
-                        </Button>
-                      </div>
-                    ) : isAnswered ? (
-                      <div>
-                        <strong>Gabarito:</strong> {question.correctAnswer}<br />
-                        <strong>Explicação:</strong> {question.explanation}
-                      </div>
-                    ) : (
-                      <div>
-                        <p>Responda a questão para ver o gabarito comentado</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {tab.id === 'notebook' && (
-                  <div>
-                    <p>Gerenciar cadernos de estudo:</p>
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
-                      <Button variant="outline" onClick={() => setShowNotebookModal(true)}>
-                        <Plus size={14} />
-                        Novo Caderno
-                      </Button>
-                      <select style={{ padding: '8px', flex: '1', minWidth: '150px' }}>
-                        <option>Selecionar caderno existente</option>
-                        {notebooks.map(notebook => (
-                          <option key={notebook} value={notebook}>{notebook}</option>
-                        ))}
-                      </select>
+          <FiltersActions>
+            <FilterLinkButton
+              type="button"
+              onClick={() => setShowAdvancedFilters(prev => !prev)}
+            >
+              {showAdvancedFilters ? 'Filtro simples' : 'Filtro avançado'}
+            </FilterLinkButton>
+            <FilterLinkButton type="button" onClick={clearFilters}>
+              Limpar filtros
+            </FilterLinkButton>
+            <Button onClick={applyFilters}>Filtrar questões</Button>
+          </FiltersActions>
+
+          {filtersError && (
+            <p style={{ marginTop: '8px', color: '#db3026', fontSize: '13px' }}>
+              {filtersError}
+            </p>
+          )}
+        </FiltersCard>
+
+        <QuestionCountRow>
+          <QuestionCounter>
+            {countLabel}
+            {!isSubscriber && !questionsCountLoading &&
+              ` • ${5 - questionsAnswered} questões restantes (gratuitas)`}
+          </QuestionCounter>
+          <FontControlGroup>
+            <label>Tamanho da Fonte</label>
+            <div className="font-controls">
+              <button
+                className="font-button"
+                onClick={decreaseFontSize}
+                disabled={fontSize <= minFontSize}
+                title="Diminuir fonte"
+              >
+                <Minus size={14} />
+              </button>
+              <span className="font-size">{fontSize}px</span>
+              <button
+                className="font-button"
+                onClick={increaseFontSize}
+                disabled={fontSize >= maxFontSize}
+                title="Aumentar fonte"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          </FontControlGroup>
+        </QuestionCountRow>
+
+        {questionsLoading ? (
+          <Card>Carregando questões...</Card>
+        ) : questionsError ? (
+          <Card>{questionsError}</Card>
+        ) : questions.length === 0 ? (
+          <Card>Nenhuma questão encontrada.</Card>
+        ) : (
+          questions.map((question, index) => {
+            const isAnswered = answeredQuestions[question.id];
+            const userAnswer = selectedAnswers[question.id];
+            const isCorrect = userAnswer === question.correctAnswer;
+            const contestLabel = (() => {
+              const yearLabel = question.year ? String(question.year) : '';
+              if (!yearLabel) return question.contest;
+              if (question.contest.includes(yearLabel)) return question.contest;
+              if (question.contest === '-') return yearLabel;
+              return `${question.contest} - ${yearLabel}`;
+            })();
+
+            return (
+              <QuestionItem
+                key={question.id}
+                $answered={isAnswered}
+                $correct={isCorrect}
+                $fontSize={fontSize}
+              >
+                <QuestionHeader>
+                  <div className="question-info">
+                    <div className="question-heading">
+                      <span className="question-index">{index + 1}</span>
+                      {question.questionNumber !== '-' && (
+                        <span className="question-code">{question.questionNumber}</span>
+                      )}
+                      {question.subject !== '-' && (
+                        <span className="question-code">{question.subject}</span>
+                      )}
+                    </div>
+                    <div className="question-detail">
+                      <span>
+                        <strong>Banca:</strong> {question.bank}
+                      </span>
+                      <span>
+                        <strong>Concurso:</strong> {contestLabel}
+                      </span>
+                      <span>
+                        <strong>Assunto:</strong> {question.subject}
+                      </span>
                     </div>
                   </div>
+                </QuestionHeader>
+
+                <QuestionText $fontSize={fontSize}>
+                  {question.question}
+                </QuestionText>
+                <div style={{ height: 12 }} />
+
+                {question.type === 'multiple' && question.options && (
+                  <OptionsContainer>
+                    {question.options.map((option, optionIndex) => {
+                      const letter = String.fromCharCode(97 + optionIndex);
+                      const isSelected = selectedAnswers[question.id] === letter;
+                      const isStriked = strikedOptions[question.id]?.includes(optionIndex);
+                      const isCorrectOption = isAnswered && question.correctAnswer === letter;
+                      const isIncorrectOption = isAnswered && isSelected &&
+                        question.correctAnswer !== letter;
+
+                      return (
+                        <Option
+                          key={optionIndex}
+                          $selected={isSelected}
+                          $correct={isCorrectOption}
+                          $incorrect={isIncorrectOption}
+                          $striked={isStriked}
+                          $fontSize={fontSize}
+                          onClick={() => !isAnswered && handleAnswerSelect(question.id, letter)}
+                        >
+                          <div className="option-letter">{letter}</div>
+                          <div className="option-text">{option}</div>
+                          {!isAnswered && (
+                            <button
+                              className="strike-btn"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStrikeOption(question.id, optionIndex);
+                              }}
+                            >
+                              <Scissors size={12} />
+                            </button>
+                          )}
+                        </Option>
+                      );
+                    })}
+                  </OptionsContainer>
                 )}
-                {tab.id === 'report' && (
-                  <div>
-                    <textarea 
-                      placeholder="Descreva o erro encontrado na questão..."
-                      style={{ width: '100%', minHeight: '100px', marginBottom: '12px', boxSizing: 'border-box' }}
-                    />
-                    <Button>Enviar</Button>
+
+                {!isAnswered && (
+                  <AnswerButton
+                    onClick={() => handleAnswerSubmit(question.id)}
+                    disabled={!selectedAnswers[question.id]}
+                  >
+                    Responder
+                  </AnswerButton>
+                )}
+
+                {isAnswered && (
+                  <div style={{
+                    padding: '12px',
+                    borderRadius: '8px',
+                    background: isCorrect ? '#22c55e15' : '#db302615',
+                    color: isCorrect ? '#22c55e' : '#db3026',
+                    fontWeight: '600',
+                    marginBottom: '16px'
+                  }}>
+                    {isCorrect ? '✓ Resposta Correta!' : '✗ Resposta Incorreta'}
                   </div>
                 )}
-              </TabContent>
-            ))}
-          </QuestionItem>
-        );
-        })
-      )}
+
+                {isAnswered && (
+                  <div style={{
+                    padding: '12px',
+                    borderRadius: '8px',
+                    background: '#f8fafc',
+                    color: '#0f172a',
+                    marginBottom: '16px'
+                  }}>
+                    <strong>Gabarito:</strong>{' '}
+                    {question.correctAnswer
+                      ? question.correctAnswer.toUpperCase()
+                      : 'Não informado'}
+                  </div>
+                )}
+
+                <QuestionTabs>
+                  {questionTabs.map(tab => (
+                    <QuestionTab
+                      key={tab.id}
+                      $active={activeQuestionTab === tab.id}
+                      onClick={() => setActiveQuestionTab(tab.id)}
+                    >
+                      <tab.icon size={14} />
+                      {tab.label}
+                    </QuestionTab>
+                  ))}
+                </QuestionTabs>
+
+                {questionTabs.map(tab => (
+                  <TabContent key={tab.id} $active={activeQuestionTab === tab.id} $fontSize={fontSize}>
+                    {tab.id === 'explanation' && (
+                      <div>
+                        {!isSubscriber ? (
+                          <div>
+                            <p>Conteúdo exclusivo para assinantes</p>
+                            <Button onClick={() => setShowUpgradeModal(true)}>
+                              Fazer upgrade
+                            </Button>
+                          </div>
+                        ) : isAnswered ? (
+                          <div>
+                            <strong>Gabarito:</strong> {question.correctAnswer}<br />
+                            <strong>Explicação:</strong> {question.explanation}
+                          </div>
+                        ) : (
+                          <div>
+                            <p>Responda a questão para ver o gabarito comentado</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {tab.id === 'notebook' && (
+                      <div>
+                        <p>Gerenciar cadernos de estudo:</p>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                          <Button variant="outline" onClick={() => setShowNotebookModal(true)}>
+                            <Plus size={14} />
+                            Novo Caderno
+                          </Button>
+                          <select style={{ padding: '8px', flex: '1', minWidth: '150px' }}>
+                            <option>Selecionar caderno existente</option>
+                            {notebooks.map(notebook => (
+                              <option key={notebook} value={notebook}>{notebook}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                    {tab.id === 'report' && (
+                      <div>
+                        <textarea
+                          placeholder="Descreva o erro encontrado na questão..."
+                          style={{ width: '100%', minHeight: '100px', marginBottom: '12px', boxSizing: 'border-box' }}
+                        />
+                        <Button>Enviar</Button>
+                      </div>
+                    )}
+                  </TabContent>
+                ))}
+              </QuestionItem>
+            );
+          })
+        )}
+
+        {totalPages > 1 && (() => {
+          const maxVisiblePages = 5;
+          const halfRange = Math.floor(maxVisiblePages / 2);
+          let startPage = Math.max(1, currentPage - halfRange);
+          let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+          if (endPage - startPage + 1 < maxVisiblePages) {
+            startPage = Math.max(1, endPage - maxVisiblePages + 1);
+          }
+          const pages = Array.from(
+            { length: endPage - startPage + 1 },
+            (_, index) => startPage + index
+          );
+
+          return (
+            <PaginationContainer>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                >
+                  Anterior
+                </Button>
+                {pages.map((page) => (
+                  <Button
+                    key={page}
+                    variant={page === currentPage ? undefined : 'outline'}
+                    onClick={() => setCurrentPage(page)}
+                  >
+                    {page}
+                  </Button>
+                ))}
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Próxima
+                </Button>
+              </div>
+              <PaginationInfo>
+                Página {currentPage} de {totalPages}
+              </PaginationInfo>
+            </PaginationContainer>
+          );
+        })()}
       </React.Fragment>
     );
   };
-
   const renderDiscursiveQuestions = () => (
     <>
       <FiltersContainer>
@@ -1912,7 +3255,7 @@ const SistemaQuestoes: React.FC = () => {
           </select>
         </FilterGroup>
         <FilterGroup>
-          <label>├ôrg├úo</label>
+          <label>Órgão</label>
           <select>
             <option value="">Todos</option>
             <option value="oab">OAB</option>
@@ -1948,7 +3291,7 @@ const SistemaQuestoes: React.FC = () => {
       </QuestionCounter>
 
       {mockDiscursiveQuestions.map((question, index) => (
-        <QuestionItem key={question.id} fontSize={fontSize}>
+        <QuestionItem key={question.id} $fontSize={fontSize}>
           <QuestionHeader>
             <div className="question-info">
               <div className="meta">
@@ -1960,23 +3303,23 @@ const SistemaQuestoes: React.FC = () => {
             </div>
           </QuestionHeader>
 
-          <QuestionText fontSize={fontSize}>
+          <QuestionText $fontSize={fontSize}>
             <strong>Questão {index + 1}:</strong> {question.question}
           </QuestionText>
 
           <DiscursiveAnswer 
-            fontSize={fontSize}
-            placeholder="Digite sua resposta (m├¡nimo 10 caracteres)..."
+            $fontSize={fontSize}
+            placeholder="Digite sua resposta (mínimo 10 caracteres)..."
             minLength={10}
           />
 
           <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
             <Button>Enviar Resposta</Button>
             <Button variant="outline">Reenviar</Button>
-            <Button variant="outline">Corre├º├úo por IA</Button>
+            <Button variant="outline">Correção por IA</Button>
           </div>
 
-          <TabContent active={true} fontSize={fontSize}>
+          <TabContent $active={true} $fontSize={fontSize}>
             <strong>Espelho de Resposta:</strong><br />
             {question.referenceAnswer}
           </TabContent>
@@ -2040,7 +3383,7 @@ const SistemaQuestoes: React.FC = () => {
           <label>Disciplina</label>
           <select 
             value={simulationFilters.discipline} 
-            onChange={(e) => handleDisciplineChange(e.target.value, true)}
+            onChange={(e) => handleSimulationDisciplineChange(e.target.value)}
           >
             <option value="">Todas</option>
             <option value="civil">Direito Civil</option>
@@ -2072,7 +3415,7 @@ const SistemaQuestoes: React.FC = () => {
         <ExamCard>
           <div className="exam-info">
             <h3>Simulado Direito Civil - LINDB</h3>
-            <div className="exam-meta">20 questões ÔÇó Tempo estimado: 40 min</div>
+            <div className="exam-meta">20 questões • Tempo estimado: 40 min</div>
           </div>
           <div className="exam-actions">
             <Button>
@@ -2085,7 +3428,7 @@ const SistemaQuestoes: React.FC = () => {
         <ExamCard>
           <div className="exam-info">
             <h3>Simulado Direito Constitucional - Poder Legislativo</h3>
-            <div className="exam-meta">15 questões ÔÇó Tempo estimado: 30 min</div>
+            <div className="exam-meta">15 questões • Tempo estimado: 30 min</div>
           </div>
           <div className="exam-actions">
             <Button>
@@ -2124,7 +3467,7 @@ const SistemaQuestoes: React.FC = () => {
     <PerformanceGrid>
       <StatCard>
         <div className="stat-number">{performanceSummary.totalQuestions}</div>
-        <div className="stat-label">Total de Questoes</div>
+        <div className="stat-label">Total de Questões</div>
       </StatCard>
       <StatCard>
         <div className="stat-number">{performanceSummary.accuracyPercentage}%</div>
@@ -2132,11 +3475,11 @@ const SistemaQuestoes: React.FC = () => {
       </StatCard>
       <StatCard>
         <div className="stat-number">{performanceSummary.correctAnswers}</div>
-        <div className="stat-label">Questoes Corretas</div>
+        <div className="stat-label">Questões Corretas</div>
       </StatCard>
       <StatCard>
         <div className="stat-number">{performanceSummary.incorrectAnswers}</div>
-        <div className="stat-label">Questoes Erradas</div>
+        <div className="stat-label">Questões Erradas</div>
       </StatCard>
     </PerformanceGrid>
 
@@ -2223,7 +3566,7 @@ const SistemaQuestoes: React.FC = () => {
               </Pie>
               <Tooltip
                 formatter={(value: number, name: string) => [
-                  `${value} questoes (${pieData.find(item => item.name === name)?.percentage}%)`,
+                  `${value} questões (${pieData.find(item => item.name === name)?.percentage}%)`,
                   name
                 ]}
               />
@@ -2247,7 +3590,7 @@ const SistemaQuestoes: React.FC = () => {
         {tabs.map(tab => (
           <Tab
             key={tab.id}
-            active={activeTab === tab.id}
+            $active={activeTab === tab.id}
             onClick={() => setActiveTab(tab.id)}
           >
             <tab.icon size={16} />
