@@ -26,7 +26,7 @@ type PlanProps = {
   price: string;
   period: string;
   pixPrice: string;
-  link: string;
+  planKey: string;
   features: string[];
   isHighlighted?: boolean;
 };
@@ -40,10 +40,10 @@ type PantheonConcursosProps = {
 const PLANS: PlanProps[] = [
   {
     title: "CURSO OAB 1ª FASE ANUAL",
+    planKey: "oab-1-fase-anual",
     price: "34,90",
     period: "12x",
     pixPrice: "349,00",
-    link: "https://pantheonconcursos.com.br/checkout/oab-primeira-fase",
     features: [
       "Acesso Imediato à TODA 1ª Fase da OAB",
       "Sistema de Questões com + 100 mil questões on-line",
@@ -55,10 +55,10 @@ const PLANS: PlanProps[] = [
   },
   {
     title: "CURSO OAB 1ª FASE ACESSO VITALÍCIO",
+    planKey: "oab-1-fase-vitalicio",
     price: "39,90",
     period: "12x",
     pixPrice: "399,00",
-    link: "https://pantheonconcursos.com.br/checkout/oab-primeira-fase-vitalicio",
     isHighlighted: true,
     features: [
       "Acesso VITÁLICIO à TODO conteúdo da 1ª Fase da OAB",
@@ -73,10 +73,10 @@ const PLANS: PlanProps[] = [
   },
   {
     title: "CURSO OAB 1ª e 2ª FASE ANUAL",
+    planKey: "oab-1-fase-2-fase-anual",
     price: "59,90",
     period: "12x",
     pixPrice: "599,00",
-    link: "https://pantheonconcursos.com.br/checkout/oab-segunda-fase",
     features: [
       "Acesso Imediato à TODA 1ª Fase da OAB",
       "Acesso Imediato à 2ª Fase da OAB (Direito do Trabalho, Penal e Civil)",
@@ -225,8 +225,9 @@ const PricingCard = ({
   pixPrice,
   features,
   isHighlighted,
-  link,
-}: PlanProps) => (
+  planKey,
+  onSelect,
+}: PlanProps & { onSelect?: (planKey: string) => void }) => (
   <motion.div
     initial={{ opacity: 0, scale: 0.95 }}
     whileInView={{ opacity: 1, scale: 1 }}
@@ -277,10 +278,9 @@ const PricingCard = ({
         </div>
       ))}
     </div>
-    <a
-      href={link}
-      target="_blank"
-      rel="noopener noreferrer"
+    <button
+      type="button"
+      onClick={() => onSelect?.(planKey)}
       className={`block text-center py-3 sm:py-4 rounded-xl text-sm sm:text-base font-bold uppercase transition-transform active:scale-95 ${
         isHighlighted
           ? "bg-[#0BA106] hover:bg-[#098905] text-white"
@@ -289,7 +289,7 @@ const PricingCard = ({
       style={{ background: "#098905" }}
     >
       Quero este plano
-    </a>
+    </button>
   </motion.div>
 );
 
@@ -360,6 +360,14 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
     document.getElementById("pricing")?.scrollIntoView({
       behavior: "smooth",
     });
+  };
+
+  const handleSelectPlan = (planKey: string) => {
+    if (onNavigate) {
+      onNavigate(`checkout:${planKey}`);
+      return;
+    }
+    window.location.href = "/checkout";
   };
 
   // @return
@@ -801,7 +809,7 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 items-stretch">
             {PLANS.map((plan) => (
-              <PricingCard key={plan.title} {...plan} />
+              <PricingCard key={plan.title} {...plan} onSelect={handleSelectPlan} />
             ))}
           </div>
         </div>
