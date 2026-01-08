@@ -56,19 +56,22 @@ const getInitialPage = (): PageKey => {
   if (path.startsWith('/aprova-oab')) return 'aprova-oab';
   if (path.startsWith('/checkout/success')) return 'checkout-success';
   if (path.startsWith('/checkout')) return 'checkout';
-  if (!isAuthenticated()) return 'home';
+  if (!isAuthenticated()) return 'checkout';
   if (path.startsWith('/admin')) {
-    return hasAdminPermission() ? 'admin-dashboard' : 'home';
+    return hasAdminPermission() ? 'admin-dashboard' : 'checkout';
   }
   if (path.startsWith('/index')) return 'index';
   const storedPage = getStoredValue(LAST_PAGE_KEY) as PageKey | null;
   if (storedPage) {
     if (storedPage === 'admin-dashboard' && !hasAdminPermission()) {
-      return 'home';
+      return 'checkout';
+    }
+    if (storedPage === 'home') {
+      return 'checkout';
     }
     return storedPage;
   }
-  return 'home';
+  return 'checkout';
 };
 
 const getPathForPage = (page: PageKey) => {
@@ -85,7 +88,7 @@ const getPathForPage = (page: PageKey) => {
       return '/index';
     case 'home':
     default:
-      return '/';
+      return '/checkout';
   }
 };
 
@@ -120,7 +123,7 @@ const RootApp = () => {
   const ensureAuthenticated = () => {
     if (isAuthenticated()) return true;
     window.alert('Faca login para acessar.');
-    navigateToPage('home');
+    navigateToPage('checkout');
     return false;
   };
 
@@ -154,12 +157,12 @@ const RootApp = () => {
     }
     if (target === 'home') {
       setHomeLoginOpen(false);
-      navigateToPage('home');
+      navigateToPage('checkout');
       return;
     }
     if (target === 'home:login') {
-      setHomeLoginOpen(true);
-      navigateToPage('home');
+      setHomeLoginOpen(false);
+      navigateToPage('checkout');
       return;
     }
 
@@ -201,7 +204,7 @@ const RootApp = () => {
     return (
       <App
         initialSection={adminSection}
-        onNavigateHome={() => navigateToPage('home')}
+        onNavigateHome={() => navigateToPage('checkout')}
       />
     );
   }

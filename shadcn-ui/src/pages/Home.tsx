@@ -337,7 +337,7 @@ const FAQItem = ({
 // --- Main Component ---
 
 // @component: PantheonOABSalesPage
-export const PantheonOABSalesPage = ({ onNavigate }: PantheonConcursosProps) => {
+export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
   useEffect(() => {
     const container = document.getElementById("ra-verified-seal");
     if (!container) return;
