@@ -236,5 +236,3 @@ const RootApp = () => {
 };
 
 createRoot(document.getElementById('root')!).render(<RootApp />);
-
-

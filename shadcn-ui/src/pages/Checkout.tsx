@@ -1,5 +1,5 @@
 ﻿import React, { useState } from "react";
-import { Trophy, Shield, Check, CreditCard, X, Copy, CheckCircle } from "lucide-react";
+import { Shield, Check, CreditCard, X, Copy, CheckCircle } from "lucide-react";
 import { buildApiUrl } from "@/lib/api";
 
 type CheckoutPlan = {
@@ -376,17 +376,13 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => onNavigate?.("home")}
-              className="flex items-center space-x-3 hover:opacity-80 transition-opacity"
-            >
-              <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
-                <Trophy className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
-                PANTHEON CONCURSOS
-              </span>
-            </button>
+            <a href="/checkout" className="flex items-center hover:opacity-90 transition-opacity">
+              <img
+                src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/71b92765-9089-4f76-aa22-6c855b4c6b78.png"
+                alt="Pantheon Concursos"
+                className="h-10 sm:h-12 w-auto"
+              />
+            </a>
             <div className="flex items-center gap-2 text-gray-700">
               <Shield className="w-5 h-5 text-red-800" />
               <span className="text-sm">Checkout protegido por SSL</span>
@@ -882,8 +878,6 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
 };
 
 export default CheckoutPage;
-
-
 
 
 
