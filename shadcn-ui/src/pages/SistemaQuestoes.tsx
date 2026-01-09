@@ -129,8 +129,8 @@ type MultiFilterKey =
 
 const TOKEN_KEY = 'pantheon:token';
 const QUESTIONS_URL = buildApiUrl('/questoes');
+const QUESTIONS_SEARCH_URL = buildApiUrl('/questoes/search');
 const QUESTIONS_COUNT_URL = buildApiUrl('/questoes/contador');
-const QUESTION_FILTERS_URL = buildApiUrl('/questoes/filtros');
 const PERFORMANCE_URL = buildApiUrl('/meu-desempenho');
 const PERFORMANCE_SUMMARY_URL = buildApiUrl('/meu-desempenho/resumo');
 
@@ -339,34 +339,6 @@ const normalizePerformanceSummary = (payload: unknown): PerformanceSummary => {
   };
 };
 
-const normalizeQuestionFilters = (payload: unknown): QuestionFilterOptions => {
-  const fallback: QuestionFilterOptions = {
-    disciplina: [],
-    assunto: [],
-    banca: [],
-    orgao: [],
-    cargo: [],
-    concurso: [],
-    tipo_questao: [],
-    correcao_questao: [],
-    anulada: [],
-    desatualizada: []
-  };
-  if (!isRecord(payload)) return fallback;
-
-  return {
-    disciplina: normalizeFilterValues(payload['disciplina']),
-    assunto: normalizeFilterValues(payload['assunto']),
-    banca: normalizeFilterValues(payload['banca']),
-    orgao: normalizeFilterValues(payload['orgao']),
-    cargo: normalizeFilterValues(payload['cargo']),
-    concurso: normalizeFilterValues(payload['concurso']),
-    tipo_questao: normalizeFilterValues(payload['tipo_questao']),
-    correcao_questao: normalizeFilterValues(payload['correcao_questao']),
-    anulada: normalizeBooleanValues(payload['anulada']),
-    desatualizada: normalizeBooleanValues(payload['desatualizada'])
-  };
-};
 
 const normalizeQuestionsCount = (payload: unknown) => {
   if (typeof payload === 'number' && Number.isFinite(payload)) {
@@ -416,6 +388,25 @@ const normalizeAnswerKey = (value: unknown) => {
   }
   const match = lower.match(/[a-e]/);
   return match ? match[0] : '';
+};
+
+const normalizeTrueFalseAnswer = (value: unknown): string => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  const lower = trimmed.toLowerCase();
+  const normalized = normalizeFilterValue(lower);
+  
+  // Verifica se é "Certo" ou "Verdadeiro"
+  if (normalized.includes('certo') || normalized.includes('verdadeiro')) {
+    return 'certo';
+  }
+  // Verifica se é "Errado" ou "Falso"
+  if (normalized.includes('errado') || normalized.includes('falso')) {
+    return 'errado';
+  }
+  
+  return '';
 };
 
 const extractQuestionOptions = (record: UnknownRecord): string[] => {
@@ -567,10 +558,14 @@ const formatCorrecaoLabel = (value: string) => {
   return value || 'Status';
 };
 
-const buildQuestionQuery = (filters: QuestionFilters, page?: number) => {
+const buildQuestionQuery = (
+  filters: QuestionFilters,
+  page?: number,
+  textKey: 'texto' | 'q' = 'texto'
+) => {
   const params = new URLSearchParams();
   const entries: Array<[string, string]> = [
-    ['texto', filters.texto.trim()],
+    [textKey, filters.texto.trim()],
     ['disciplina', filters.disciplina.map(item => item.trim()).filter(Boolean).join(',')],
     ['assunto', filters.assunto.map(item => item.trim()).filter(Boolean).join(',')],
     ['banca', filters.banca.map(item => item.trim()).filter(Boolean).join(',')],
@@ -614,23 +609,7 @@ const normalizeQuestionRecord = (item: unknown, index: number): Question => {
   ]);
 
   const options = extractQuestionOptions(record).filter((option) => option);
-  const answerFromNumber =
-    numeroAlternativaCorreta && numeroAlternativaCorreta > 0
-      ? indexToLetter(numeroAlternativaCorreta - 1)
-      : '';
-  const answerFromText = normalizeAnswerKey(
-    getFirstString(record, [
-      'resposta_correta',
-      'respostaCorreta',
-      'gabarito',
-      'alternativa_correta',
-      'alternativaCorreta',
-      'numero_alternativa_correta',
-      'numeroAlternativaCorreta'
-    ])
-  );
-  const correctAnswer = answerFromNumber || answerFromText;
-
+  
   const disciplina = getFirstString(record, [
     'area_conhecimento',
     'areaConhecimento',
@@ -658,6 +637,42 @@ const normalizeQuestionRecord = (item: unknown, index: number): Question => {
     normalizedQuestionType.includes('falso')
       ? 'true-false'
       : 'multiple';
+  
+  // Determinar a resposta correta baseado no tipo de questão
+  let correctAnswer = '';
+  if (questionType === 'true-false') {
+    // Para questões verdadeiro/falso, normalizar para "certo" ou "errado"
+    const trueFalseAnswer = normalizeTrueFalseAnswer(
+      getFirstString(record, [
+        'resposta_correta',
+        'respostaCorreta',
+        'gabarito',
+        'alternativa_correta',
+        'alternativaCorreta',
+        'alternativa_a',
+        'alternativa_b'
+      ])
+    );
+    correctAnswer = trueFalseAnswer;
+  } else {
+    // Para questões de múltipla escolha, normalizar para letra (a-e)
+    const answerFromNumber =
+      numeroAlternativaCorreta && numeroAlternativaCorreta > 0
+        ? indexToLetter(numeroAlternativaCorreta - 1)
+        : '';
+    const answerFromText = normalizeAnswerKey(
+      getFirstString(record, [
+        'resposta_correta',
+        'respostaCorreta',
+        'gabarito',
+        'alternativa_correta',
+        'alternativaCorreta',
+        'numero_alternativa_correta',
+        'numeroAlternativaCorreta'
+      ])
+    );
+    correctAnswer = answerFromNumber || answerFromText;
+  }
   const gabarito = normalizeQuestionText(getString(record, 'gabarito'));
   const comentario = normalizeQuestionText(getString(record, 'comentario'));
   const resolucao = normalizeQuestionText(
@@ -1251,11 +1266,15 @@ const QuestionText = styled.div<{ $fontSize?: number }>`
   }
 `;
 
-const OptionsContainer = styled.div`
+const OptionsContainer = styled.div<{ $isTrueFalse?: boolean }>`
   margin-bottom: 20px;
+  display: ${props => props.$isTrueFalse ? 'flex' : 'block'};
+  flex-direction: ${props => props.$isTrueFalse ? 'column' : 'row'};
+  gap: ${props => props.$isTrueFalse ? '8px' : '0'};
 
   ${media.mobile} {
     margin-bottom: 16px;
+    gap: ${props => props.$isTrueFalse ? '6px' : '0'};
   }
 `;
 
@@ -1265,6 +1284,7 @@ const Option = styled.div<{
   $incorrect?: boolean; 
   $striked?: boolean;
   $fontSize?: number;
+  $isTrueFalse?: boolean;
 }>`
   display: flex;
   align-items: center;
@@ -1272,19 +1292,22 @@ const Option = styled.div<{
   padding: 12px;
   border: 1px solid ${props => props.theme.colors.border};
   border-radius: 8px;
-  margin-bottom: 8px;
+  margin-bottom: ${props => props.$isTrueFalse ? '0' : '8px'};
   cursor: pointer;
   transition: all 0.2s ease;
   position: relative;
   opacity: ${props => props.$striked ? 0.4 : 1};
   text-decoration: ${props => props.$striked ? 'line-through' : 'none'};
   font-size: ${props => props.$fontSize || 16}px;
+  flex: ${props => props.$isTrueFalse ? 'auto' : 'auto'};
+  justify-content: ${props => props.$isTrueFalse ? 'center' : 'flex-start'};
+  width: ${props => props.$isTrueFalse ? '100%' : 'auto'};
 
   ${media.mobile} {
     gap: 8px;
-    padding: 10px;
+    padding: ${props => props.$isTrueFalse ? '10px 8px' : '10px'};
     font-size: ${props => Math.max((props.$fontSize || 16) - 2, 14)}px;
-    margin-bottom: 6px;
+    margin-bottom: ${props => props.$isTrueFalse ? '0' : '6px'};
   }
 
   background: ${props => {
@@ -1326,7 +1349,7 @@ const Option = styled.div<{
   }
 
   .option-text {
-    flex: 1;
+    flex: ${props => props.$isTrueFalse ? 'auto' : '1'};
     line-height: 1.5;
   }
 
@@ -1895,6 +1918,7 @@ const DISCIPLINE_OPTIONS = [
   'turismo'
 ];
 
+
 const SUBJECT_OPTIONS_BY_DISCIPLINE: Record<string, string[]> = {
   'administracao-de-recursos-materiais': [
     'Administração Patrimonial',
@@ -1928,6 +1952,23 @@ const SUBJECT_OPTIONS_BY_DISCIPLINE: Record<string, string[]> = {
     'Transportes e Distribuição de Materiais'
   ]
 };
+
+const SUBJECT_OPTIONS = Array.from(
+  new Set(Object.values(SUBJECT_OPTIONS_BY_DISCIPLINE).flat())
+);
+
+const QUESTION_TYPE_OPTIONS = [
+  'multipla escolha',
+  'certo ou errado',
+  'discursiva'
+];
+
+const QUESTION_STATUS_OPTIONS = [
+  'nao resolvidas',
+  'resolvidas',
+  'certas',
+  'erradas'
+];
 
 const BANK_OPTIONS = [
   'ADM&TEC',
@@ -2271,20 +2312,18 @@ const SistemaQuestoes: React.FC = () => {
   const [questionsCount, setQuestionsCount] = useState<number | null>(null);
   const [questionsCountLoading, setQuestionsCountLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [filterOptions, setFilterOptions] = useState<QuestionFilterOptions>({
-    disciplina: [],
-    assunto: [],
-    banca: [],
-    orgao: [],
-    cargo: [],
+  const [filterOptions] = useState<QuestionFilterOptions>({
+    disciplina: DISCIPLINE_OPTIONS,
+    assunto: SUBJECT_OPTIONS,
+    banca: BANK_OPTIONS,
+    orgao: ORGAO_OPTIONS,
+    cargo: CARGO_OPTIONS,
     concurso: [],
-    tipo_questao: [],
-    correcao_questao: [],
-    anulada: [],
-    desatualizada: []
+    tipo_questao: QUESTION_TYPE_OPTIONS,
+    correcao_questao: QUESTION_STATUS_OPTIONS,
+    anulada: [true],
+    desatualizada: [true]
   });
-  const [filtersLoading, setFiltersLoading] = useState(false);
-  const [filtersError, setFiltersError] = useState<string | null>(null);
   const [performancePeriod, setPerformancePeriod] = useState('all');
   const [performanceView, setPerformanceView] = useState<'bar' | 'line'>('bar');
   const [performanceSummary, setPerformanceSummary] = useState<PerformanceSummary>({
@@ -2387,37 +2426,6 @@ const SistemaQuestoes: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [openFilter]);
 
-  const loadFilterOptions = useCallback(async () => {
-    setFiltersLoading(true);
-    setFiltersError(null);
-    try {
-      const token =
-        typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
-      if (!token) {
-        throw new Error('Token não encontrado. Faça login para carregar filtros.');
-      }
-      const headers: Record<string, string> = {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`
-      };
-      const response = await fetch(QUESTION_FILTERS_URL, { headers });
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || `Falha ao carregar filtros (${response.status})`);
-      }
-      const payload = await response.json();
-      setFilterOptions(normalizeQuestionFilters(payload));
-    } catch (requestError) {
-      setFiltersError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Erro ao carregar filtros.'
-      );
-    } finally {
-      setFiltersLoading(false);
-    }
-  }, []);
-
   const loadQuestions = useCallback(async (currentFilters: QuestionFilters, page: number) => {
     setQuestionsLoading(true);
     setQuestionsError(null);
@@ -2426,8 +2434,10 @@ const SistemaQuestoes: React.FC = () => {
       const token =
         typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
       if (token) headers.Authorization = `Bearer ${token}`;
-      const query = buildQuestionQuery(currentFilters, page);
-      const response = await fetch(`${QUESTIONS_URL}${query}`, { headers });
+    const hasSearch = currentFilters.texto && currentFilters.texto.trim();
+    const query = buildQuestionQuery(currentFilters, page, hasSearch ? 'q' : 'texto');
+    const baseUrl = hasSearch ? QUESTIONS_SEARCH_URL : QUESTIONS_URL;
+    const response = await fetch(`${baseUrl}${query}`, { headers });
       if (!response.ok) {
         throw new Error(`Falha ao carregar questões (${response.status})`);
       }
@@ -2451,8 +2461,9 @@ const SistemaQuestoes: React.FC = () => {
       const token =
         typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
       if (token) headers.Authorization = `Bearer ${token}`;
-      const query = buildQuestionQuery(currentFilters);
-      const response = await fetch(`${QUESTIONS_COUNT_URL}${query}`, { headers });
+    const hasSearch = currentFilters.texto && currentFilters.texto.trim();
+    const query = buildQuestionQuery(currentFilters, undefined, hasSearch ? 'q' : 'texto');
+    const response = await fetch(`${QUESTIONS_COUNT_URL}${query}`, { headers });
       if (!response.ok) {
         const message = await response.text();
         throw new Error(message || `Falha ao carregar contador (${response.status})`);
@@ -2530,11 +2541,6 @@ const SistemaQuestoes: React.FC = () => {
       setPerformanceLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    if (activeTab !== 'objective') return;
-    void loadFilterOptions();
-  }, [activeTab, loadFilterOptions]);
 
   useEffect(() => {
     if (activeTab !== 'objective') return;
@@ -2948,11 +2954,6 @@ const SistemaQuestoes: React.FC = () => {
             <Button onClick={applyFilters}>Filtrar questões</Button>
           </FiltersActions>
 
-          {filtersError && (
-            <p style={{ marginTop: '8px', color: '#db3026', fontSize: '13px' }}>
-              {filtersError}
-            </p>
-          )}
         </FiltersCard>
 
         <QuestionCountRow>
@@ -3039,7 +3040,7 @@ const SistemaQuestoes: React.FC = () => {
                 <QuestionText $fontSize={fontSize}>
                   {question.question}
                 </QuestionText>
-                <div style={{ height: 12 }} />
+                <div style={{ height: 4 }} />
 
                 {question.type === 'multiple' && question.options && (
                   <OptionsContainer>
@@ -3080,6 +3081,33 @@ const SistemaQuestoes: React.FC = () => {
                   </OptionsContainer>
                 )}
 
+                {question.type === 'true-false' && (
+                  <OptionsContainer $isTrueFalse={true}>
+                    {['certo', 'errado'].map((answer) => {
+                      const label = answer.charAt(0).toUpperCase() + answer.slice(1);
+                      const isSelected = selectedAnswers[question.id] === answer;
+                      const isCorrectOption = isAnswered && question.correctAnswer === answer;
+                      const isIncorrectOption = isAnswered && isSelected &&
+                        question.correctAnswer !== answer;
+
+                      return (
+                        <Option
+                          key={answer}
+                          $selected={isSelected}
+                          $correct={isCorrectOption}
+                          $incorrect={isIncorrectOption}
+                          $striked={false}
+                          $fontSize={fontSize}
+                          $isTrueFalse={true}
+                          onClick={() => !isAnswered && handleAnswerSelect(question.id, answer)}
+                        >
+                          <div className="option-text">{label}</div>
+                        </Option>
+                      );
+                    })}
+                  </OptionsContainer>
+                )}
+
                 {!isAnswered && (
                   <AnswerButton
                     onClick={() => handleAnswerSubmit(question.id)}
@@ -3112,7 +3140,9 @@ const SistemaQuestoes: React.FC = () => {
                   }}>
                     <strong>Gabarito:</strong>{' '}
                     {question.correctAnswer
-                      ? question.correctAnswer.toUpperCase()
+                      ? question.type === 'true-false'
+                        ? question.correctAnswer.charAt(0).toUpperCase() + question.correctAnswer.slice(1)
+                        : question.correctAnswer.toUpperCase()
                       : 'Não informado'}
                   </div>
                 )}
@@ -3143,7 +3173,7 @@ const SistemaQuestoes: React.FC = () => {
                           </div>
                         ) : isAnswered ? (
                           <div>
-                            <strong>Gabarito:</strong> {question.correctAnswer}<br />
+                            <strong>Gabarito:</strong> {question.type === 'true-false' ? (question.correctAnswer.charAt(0).toUpperCase() + question.correctAnswer.slice(1)) : question.correctAnswer}<br />
                             <strong>Explicação:</strong> {question.explanation}
                           </div>
                         ) : (
