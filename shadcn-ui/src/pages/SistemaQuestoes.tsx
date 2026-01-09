@@ -208,7 +208,10 @@ const normalizeQuestionText = (value: string) => {
     .replace(/\\t/g, ' ');
   const withBreaks = unescaped.replace(/<br\s*\/?>/gi, '\n');
   const withoutTags = withBreaks.replace(/<\/?[^>]+>/g, '');
-  return withoutTags.replace(/\r\n/g, '\n').trim();
+  return withoutTags
+    .replace(/\r\n/g, '\n')
+    .replace(/Explica(?:ç|c)ão:\s*Coment(?:á|a)rios:\s*/gi, '')
+    .trim();
 };
 
 const normalizeFilterValue = (value: string) =>
@@ -602,7 +605,7 @@ const normalizeUserAnswer = (value: unknown) => {
     getFirstString(value, ['questao_id', 'questaoId', 'question_id', 'questionId']) ||
     String(value['questao'] ?? value['id'] ?? '');
   if (!questaoIdRaw) return null;
-  const corretaRaw = value['correta'] ?? value['isCorrect'] ?? value['correct'];
+  const corretaRaw = value['correta'] ?? value['isCorrect'] ?? value['correct'] ?? value['correcao_questao'];
   const correta =
     typeof corretaRaw === 'boolean'
       ? corretaRaw
@@ -688,7 +691,13 @@ const normalizeQuestionRecord = (item: unknown, index: number): Question => {
         'alternativa_b'
       ])
     );
-    correctAnswer = trueFalseAnswer;
+    if (trueFalseAnswer) {
+      correctAnswer = trueFalseAnswer;
+    } else if (numeroAlternativaCorreta === 1) {
+      correctAnswer = 'certo';
+    } else if (numeroAlternativaCorreta === 2) {
+      correctAnswer = 'errado';
+    }
   } else {
     // Para questões de múltipla escolha, normalizar para letra (a-e)
     const answerFromNumber =
@@ -730,7 +739,7 @@ const normalizeQuestionRecord = (item: unknown, index: number): Question => {
   return {
     id: getFirstString(
       record,
-      ['id', 'uuid', 'id_questao', 'idQuestao'],
+      ['questao_id', 'questaoId', 'id', 'uuid', 'id_questao', 'idQuestao'],
       String(index)
     ),
     type: questionType,
@@ -2342,6 +2351,7 @@ const SistemaQuestoes: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [fontSize, setFontSize] = useState(16);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [responseQuestions, setResponseQuestions] = useState<Question[] | null>(null);
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [questionsError, setQuestionsError] = useState<string | null>(null);
   const [questionsCount, setQuestionsCount] = useState<number | null>(null);
@@ -2736,16 +2746,18 @@ const SistemaQuestoes: React.FC = () => {
     }
   }, []);
 
-  const loadUserAnswers = useCallback(async () => {
+  const loadUserAnswers = useCallback(async (status?: string) => {
     setUserAnswersLoading(true);
     try {
       const token =
         typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
       if (!token) {
         setUserAnswers({});
+        setResponseQuestions(status ? [] : null);
         return;
       }
-      const response = await fetch(USER_ANSWERS_URL, {
+      const query = status ? `?status=${encodeURIComponent(status)}` : '';
+      const response = await fetch(`${USER_ANSWERS_URL}${query}`, {
         headers: {
           Accept: 'application/json',
           Authorization: `Bearer ${token}`
@@ -2763,6 +2775,13 @@ const SistemaQuestoes: React.FC = () => {
           : Array.isArray(payload?.data)
             ? payload.data
             : [];
+      if (status) {
+        setResponseQuestions(items.map((item: unknown, index: number) =>
+          normalizeQuestionRecord(item, index)
+        ));
+      } else {
+        setResponseQuestions(null);
+      }
       const next: Record<string, boolean> = {};
       items.forEach((item: unknown) => {
         const normalized = normalizeUserAnswer(item);
@@ -2773,16 +2792,38 @@ const SistemaQuestoes: React.FC = () => {
       setUserAnswers(next);
     } catch (requestError) {
       setUserAnswers({});
+      setResponseQuestions(null);
     } finally {
       setUserAnswersLoading(false);
     }
   }, []);
 
+  const getRespostaStatusParam = (values: string[]) => {
+    if (!values.length) return undefined;
+    const normalized = values.map((value) => normalizeFilterValue(value));
+    if (normalized.some((value) => value.includes('resolv') && !value.includes('nao'))) {
+      return 'resolvidas';
+    }
+    if (normalized.some((value) => value.includes('certa'))) {
+      return 'certas';
+    }
+    if (normalized.some((value) => value.includes('errada'))) {
+      return 'erradas';
+    }
+    if (normalized.some((value) => value.includes('nao') && value.includes('resolv'))) {
+      return 'nao_resolvidas';
+    }
+    return undefined;
+  };
+
+
+
 
   useEffect(() => {
     if (activeTab !== 'objective') return;
-    void loadUserAnswers();
-  }, [activeTab, loadUserAnswers]);
+    const statusParam = getRespostaStatusParam(appliedFilters.correcao_questao);
+    void loadUserAnswers(statusParam);
+  }, [activeTab, appliedFilters.correcao_questao, loadUserAnswers]);
   const sendUserAnswer = useCallback(async (questionId: string, isCorrect: boolean) => {
     try {
       const token =
@@ -2860,19 +2901,19 @@ const SistemaQuestoes: React.FC = () => {
   const renderObjectiveQuestions = () => {
     const responseFilterActive = appliedFilters.correcao_questao.length > 0;
     const responseFilteredQuestions = responseFilterActive
-      ? questions.filter((question) =>
-          appliedFilters.correcao_questao.some((filterValue) =>
-            matchesAnswerFilter(filterValue, userAnswers[question.id])
-          )
-        )
+      ? responseQuestions ?? []
       : questions;
-    const totalCount = questionsCount ?? questions.length;
+    const totalCount = responseFilterActive
+      ? responseFilteredQuestions.length
+      : questionsCount ?? questions.length;
     const countLabel = questionsCountLoading || (responseFilterActive && userAnswersLoading)
       ? 'Carregando...'
       : responseFilterActive
         ? `${responseFilteredQuestions.length.toLocaleString('pt-BR')} questões encontradas`
         : `${totalCount.toLocaleString('pt-BR')} questões encontradas`;
-    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const totalPages = responseFilterActive
+      ? 1
+      : Math.max(1, Math.ceil(totalCount / pageSize));
     const subjectOptions = getSubjectOptions();
     const selectedFilterGroups: Array<{
       key: MultiFilterKey;
@@ -3350,7 +3391,7 @@ const SistemaQuestoes: React.FC = () => {
           })
         )}
 
-        {totalPages > 1 && (() => {
+        {!responseFilterActive && totalPages > 1 && (() => {
           const maxVisiblePages = 5;
           const halfRange = Math.floor(maxVisiblePages / 2);
           let startPage = Math.max(1, currentPage - halfRange);
