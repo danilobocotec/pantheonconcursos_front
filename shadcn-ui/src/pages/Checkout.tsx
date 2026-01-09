@@ -376,15 +376,23 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <a href="/checkout" className="flex items-center hover:opacity-90 transition-opacity">
+            <button
+              onClick={() => onNavigate?.("home")}
+              className="flex items-center hover:opacity-80 transition-opacity"
+            >
               <img
-                src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/71b92765-9089-4f76-aa22-6c855b4c6b78.png"
+                src="/LogoTopoSite_horizontal_rubro.jpg"
                 alt="Pantheon Concursos"
                 className="h-10 sm:h-12 w-auto"
+                style={{
+                  objectFit: "scale-down",
+                  objectPosition: "left center",
+                  maxWidth: "240px",
+                }}
               />
-            </a>
-            <div className="flex items-center gap-2 text-gray-700">
-              <Shield className="w-5 h-5 text-red-800" />
+            </button>
+            <div className="flex items-center gap-2 text-red-800">
+              <Shield className="w-5 h-5" />
               <span className="text-sm">Checkout protegido por SSL</span>
             </div>
           </div>

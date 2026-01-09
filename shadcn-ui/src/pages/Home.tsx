@@ -1,8 +1,11 @@
-import React, { useEffect, useState } from "react";
+﻿
+import React, { useState } from "react";
 import {
   BarChart3,
   BookOpen,
   CheckCircle2,
+  Eye,
+  EyeOff,
   ChevronDown,
   ChevronUp,
   Crosshair,
@@ -16,8 +19,11 @@ import {
   Scale,
   Star,
   Timer,
+  X,
+  Users,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { buildApiUrl } from "@/lib/api";
 
 // --- Types & Constants ---
 
@@ -26,24 +32,18 @@ type PlanProps = {
   price: string;
   period: string;
   pixPrice: string;
-  planKey: string;
+  link: string;
   features: string[];
   isHighlighted?: boolean;
-};
-
-type PantheonConcursosProps = {
-  onNavigate?: (page: string) => void;
-  openLoginOnLoad?: boolean;
-  onLoginModalShown?: () => void;
 };
 
 const PLANS: PlanProps[] = [
   {
     title: "CURSO OAB 1ª FASE ANUAL",
-    planKey: "oab-1-fase-anual",
     price: "34,90",
     period: "12x",
     pixPrice: "349,00",
+    link: "https://pantheonconcursos.com.br/checkout/oab-primeira-fase",
     features: [
       "Acesso Imediato à TODA 1ª Fase da OAB",
       "Sistema de Questões com + 100 mil questões on-line",
@@ -55,10 +55,10 @@ const PLANS: PlanProps[] = [
   },
   {
     title: "CURSO OAB 1ª FASE ACESSO VITALÍCIO",
-    planKey: "oab-1-fase-vitalicio",
     price: "39,90",
     period: "12x",
     pixPrice: "399,00",
+    link: "https://pantheonconcursos.com.br/checkout/oab-primeira-fase-vitalicio",
     isHighlighted: true,
     features: [
       "Acesso VITÁLICIO à TODO conteúdo da 1ª Fase da OAB",
@@ -73,10 +73,10 @@ const PLANS: PlanProps[] = [
   },
   {
     title: "CURSO OAB 1ª e 2ª FASE ANUAL",
-    planKey: "oab-1-fase-2-fase-anual",
     price: "59,90",
     period: "12x",
     pixPrice: "599,00",
+    link: "https://pantheonconcursos.com.br/checkout/oab-segunda-fase",
     features: [
       "Acesso Imediato à TODA 1ª Fase da OAB",
       "Acesso Imediato à 2ª Fase da OAB (Direito do Trabalho, Penal e Civil)",
@@ -196,7 +196,7 @@ const FeatureCard = ({
   title,
   description,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
+  icon: any;
   title: string;
   description: string;
 }) => (
@@ -225,9 +225,8 @@ const PricingCard = ({
   pixPrice,
   features,
   isHighlighted,
-  planKey,
-  onSelect,
-}: PlanProps & { onSelect?: (planKey: string) => void }) => (
+  link,
+}: PlanProps) => (
   <motion.div
     initial={{ opacity: 0, scale: 0.95 }}
     whileInView={{ opacity: 1, scale: 1 }}
@@ -263,24 +262,20 @@ const PricingCard = ({
       </p>
     </div>
     <div className="flex-grow space-y-3 sm:space-y-4 mb-6 sm:mb-8">
-      {features.map((feature, index) => (
-        <div
-          key={index}
-          className="flex gap-2 sm:gap-3 text-xs sm:text-sm items-start"
-        >
+      {features.map((f, i) => (
+        <div key={i} className="flex gap-2 sm:gap-3 text-xs sm:text-sm items-start">
           <CheckCircle2
             size={16}
             className={`flex-shrink-0 mt-0.5 ${
               isHighlighted ? "text-[#0BA106]" : "text-[#771819]"
             }`}
           />
-          <span>{feature}</span>
+          <span>{f}</span>
         </div>
       ))}
     </div>
-    <button
-      type="button"
-      onClick={() => onSelect?.(planKey)}
+    <a
+      href="/checkout"
       className={`block text-center py-3 sm:py-4 rounded-xl text-sm sm:text-base font-bold uppercase transition-transform active:scale-95 ${
         isHighlighted
           ? "bg-[#0BA106] hover:bg-[#098905] text-white"
@@ -289,18 +284,13 @@ const PricingCard = ({
       style={{ background: "#098905" }}
     >
       Quero este plano
-    </button>
+    </a>
   </motion.div>
 );
 
-const FAQItem = ({
-  question,
-  answer,
-}: {
-  question: string;
-  answer: string;
-}) => {
+const FAQItem = ({ question, answer }: { question: string; answer: string }) => {
   const [isOpen, setIsOpen] = useState(false);
+
   return (
     <div className="border-b border-slate-200 py-3 sm:py-4">
       <button
@@ -337,37 +327,185 @@ const FAQItem = ({
 // --- Main Component ---
 
 // @component: PantheonOABSalesPage
-export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
-  useEffect(() => {
+type PantheonConcursosProps = {
+  onNavigate?: (page: string) => void;
+  openLoginOnLoad?: boolean;
+  onLoginModalShown?: () => void;
+};
+
+// --- Main Component ---
+
+// @component: PantheonOABSalesPage
+export const PantheonOABSalesPage = ({
+  onNavigate,
+  openLoginOnLoad,
+  onLoginModalShown,
+}: PantheonConcursosProps) => {
+  const [loginModalOpen, setLoginModalOpen] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
+  const [rememberMe, setRememberMe] = React.useState(false);
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [fullName, setFullName] = React.useState("");
+  const [loginLoading, setLoginLoading] = React.useState(false);
+  const [loginError, setLoginError] = React.useState("");
+  const [isRegistering, setIsRegistering] = React.useState(false);
+
+  const persistSession = React.useCallback(
+    (data: any, emailValue: string) => {
+      const role = (
+        data?.user?.role ||
+        data?.role ||
+        data?.user?.profile ||
+        ""
+      )
+        .toString()
+        .toLowerCase();
+      const isAdmin = role.includes("admin");
+      const resolvedName =
+        data?.user?.full_name || data?.full_name || emailValue || "Usuario";
+
+      if (typeof window !== "undefined") {
+        if (data?.token || data?.accessToken) {
+          window.localStorage.setItem(
+            "pantheon:token",
+            data?.token || data?.accessToken
+          );
+        }
+        window.localStorage.setItem("pantheon:isAdmin", String(isAdmin));
+        if (role) {
+          window.localStorage.setItem("pantheon:role", role);
+        }
+        if (resolvedName) {
+          window.localStorage.setItem("pantheon:fullName", resolvedName);
+        }
+        if (rememberMe) {
+          window.localStorage.setItem("pantheon:lastEmail", emailValue);
+        } else {
+          window.localStorage.removeItem("pantheon:lastEmail");
+        }
+      }
+
+      if (isAdmin) {
+        onNavigate?.("admin-dashboard");
+      } else {
+        onNavigate?.("visao-geral");
+      }
+    },
+    [onNavigate, rememberMe]
+  );
+
+  const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    setLoginError("");
+    setLoginLoading(true);
+
+    try {
+      if (!email || !password) {
+        throw new Error("Informe e-mail e senha.");
+      }
+
+      if (isRegistering) {
+        if (!fullName.trim()) {
+          throw new Error("Informe seu nome completo.");
+        }
+        if (password != confirmPassword) {
+          throw new Error("As senhas nao conferem.");
+        }
+
+        const registerResponse = await fetch(buildApiUrl("/auth/register"), {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            full_name: fullName,
+            email,
+            password,
+            confirm: confirmPassword,
+          }),
+        });
+
+        if (!registerResponse.ok) {
+          const message = await registerResponse.text();
+          throw new Error(
+            message || "Nao foi possivel criar a conta. Tente novamente."
+          );
+        }
+      }
+
+      const response = await fetch(buildApiUrl("/auth/login"), {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(
+          message || "Nao foi possivel autenticar. Verifique suas credenciais."
+        );
+      }
+
+      const data = await response.json();
+      persistSession(data, email);
+
+      setLoginModalOpen(false);
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+      setFullName("");
+      setRememberMe(false);
+      setIsRegistering(false);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Erro inesperado ao autenticar.";
+      setLoginError(message);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (openLoginOnLoad) {
+      setLoginModalOpen(true);
+      onLoginModalShown?.();
+    }
+  }, [openLoginOnLoad, onLoginModalShown]);
+
+  React.useEffect(() => {
     const container = document.getElementById("ra-verified-seal");
     if (!container) return;
-
-    const existingScript = container.querySelector<HTMLScriptElement>("#ra-embed-verified-seal");
-    if (existingScript) return;
-
     container.innerHTML = "";
     const script = document.createElement("script");
     script.type = "text/javascript";
     script.id = "ra-embed-verified-seal";
     script.src = "https://s3.amazonaws.com/raichu-beta/ra-verified/bundle.js";
-    script.setAttribute("data-id", "WV9PZEpydmFxVF91cEtxdTpwYW50aGVvbi1jdXJzb3M=");
+    script.setAttribute(
+      "data-id",
+      "WV9PZEpydmFxVF91cEtxdTpwYW50aGVvbi1jdXJzb3M="
+    );
     script.setAttribute("data-target", "ra-verified-seal");
     script.setAttribute("data-model", "horizontal_1");
     container.appendChild(script);
+    return () => {
+      container.innerHTML = "";
+    };
   }, []);
 
   const scrollToPricing = () => {
     document.getElementById("pricing")?.scrollIntoView({
       behavior: "smooth",
     });
-  };
-
-  const handleSelectPlan = (planKey: string) => {
-    if (onNavigate) {
-      onNavigate(`checkout:${planKey}`);
-      return;
-    }
-    window.location.href = "/checkout";
   };
 
   // @return
@@ -378,6 +516,25 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
         <div className="absolute inset-0 bg-gradient-to-br from-red-50 to-white -z-10" />
         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-96 h-96 bg-red-100/50 rounded-full blur-3xl -z-10" />
         <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between mb-8 sm:mb-10">
+            <img
+              src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/71b92765-9089-4f76-aa22-6c855b4c6b78.png"
+              alt="Pantheon Concursos"
+              className="h-10 sm:h-12 w-auto"
+              style={{
+                objectFit: "scale-down",
+                objectPosition: "left center",
+                maxWidth: "220px",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setLoginModalOpen(true)}
+              className="bg-[#771819] hover:bg-[#5f1314] text-white font-bold py-2.5 px-6 rounded-full text-sm sm:text-base uppercase tracking-wider transition-colors"
+            >
+              Entrar
+            </button>
+          </div>
           <div className="grid md:grid-cols-2 gap-8 md:gap-12 items-center min-h-[500px] md:min-h-[600px]">
             {/* Conteúdo à esquerda */}
             <motion.div
@@ -386,38 +543,18 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
               transition={{ duration: 0.6 }}
               className="flex flex-col justify-center"
             >
-              {/* Logo */}
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.1 }}
-                className="mb-6 sm:mb-8"
-              >
-                <img
-                  src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/71b92765-9089-4f76-aa22-6c855b4c6b78.png"
-                  alt="Pantheon Concursos"
-                  className="h-12 sm:h-14 md:h-16 w-auto"
-                  style={{
-                    objectFit: "scale-down",
-                    objectPosition: "50% 50%",
-                    opacity: "1",
-                    width: "200px",
-                    maxWidth: "200px",
-                    height: "36px",
-                  }}
-                />
-              </motion.div>
-
               <span className="inline-flex w-fit px-3 sm:px-4 py-1 rounded-full bg-[#771819]/10 text-[#771819] text-xs sm:text-sm font-bold uppercase tracking-widest mb-4 sm:mb-6">
                 APROVAÇÃO OAB 2026
               </span>
               <h1 className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-slate-900 mb-4 sm:mb-6 leading-tight">
-                Tudo o que a <span className="text-[#771819]">OAB cobra na prova</span>,
-                organizado para você estudar no <span className="text-[#771819]">padrão da FGV</span>
+                Tudo o que a{" "}
+                <span className="text-[#771819]">OAB cobra na prova</span>,
+                organizado para você estudar no{" "}
+                <span className="text-[#771819]">padrão da FGV</span>
               </h1>
               <p className="text-base sm:text-lg md:text-xl text-slate-600 mb-6 sm:mb-8 leading-relaxed">
-                Plataforma completa para a 1ª e 2ª Fase da OAB com teoria, provas comentadas,
-                simulados e mapas mentais, do edital à prova.
+                Plataforma completa para a 1ª e 2ª Fase da OAB com teoria,
+                provas comentadas, simulados e mapas mentais, do edital à prova.
               </p>
 
               {/* Imagem à direita - aparece aqui no mobile */}
@@ -440,7 +577,9 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
               </motion.div>
 
               <div className="mt-2">
-                <CTAButton onClick={scrollToPricing}>Quero começar agora</CTAButton>
+                <CTAButton onClick={scrollToPricing}>
+                  Quero começar agora
+                </CTAButton>
               </div>
             </motion.div>
 
@@ -526,12 +665,12 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
               "Para quem carrega o receio de reprovar novamente na 1ª ou na 2ª fase da OAB",
               "Para quem sente que são matérias demais para estudar e pouco tempo para dar conta de tudo",
               "Para quem não sabe a ordem certa de matérias para estudar, nem qual priorizar",
-            ].map((text, index) => (
+            ].map((text, i) => (
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
                 whileInView={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.1 }}
-                key={text}
+                transition={{ delay: i * 0.1 }}
+                key={i}
                 className="flex gap-3 sm:gap-4 items-start bg-white/10 p-4 sm:p-6 rounded-2xl border border-white/5"
               >
                 <div className="flex-shrink-0 w-6 h-6 sm:w-8 sm:h-8 bg-[#0BA106]/20 text-[#0BA106] rounded-full flex items-center justify-center">
@@ -556,29 +695,29 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
             Veja o que mudou na preparação de quem estuda com o Pantheon OAB
           </h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 mb-12 sm:mb-16">
-            {TESTIMONIALS.map((testimonial) => (
+            {TESTIMONIALS.map((t, i) => (
               <motion.div
-                key={testimonial.name}
+                key={i}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 className="bg-slate-50 p-6 sm:p-8 rounded-3xl border border-slate-100 hover:shadow-md transition-shadow"
               >
                 <div className="flex gap-1 mb-4 text-yellow-400">
-                  {[...Array(testimonial.rating)].map((_, index) => (
-                    <Star key={index} size={16} fill="currentColor" />
+                  {[...Array(t.rating)].map((_, j) => (
+                    <Star key={j} size={16} fill="currentColor" />
                   ))}
                 </div>
                 <p className="text-sm sm:text-base text-slate-700 italic mb-6 leading-relaxed">
-                  {testimonial.text}
+                  {t.text}
                 </p>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-[#771819] rounded-full flex items-center justify-center text-white font-bold text-sm">
-                    {testimonial.name[0]}
+                    {t.name[0]}
                   </div>
                   <div>
                     <span className="font-bold text-slate-900 block text-sm">
-                      {testimonial.name}
+                      {t.name}
                     </span>
                   </div>
                 </div>
@@ -601,7 +740,8 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
               O que você vai receber ao entrar no Pantheon OAB
             </h2>
             <p className="text-base sm:text-lg md:text-xl text-slate-600 px-2">
-              Uma preparação pensada do edital até o dia da prova. Do jeito que a FGV realmente cobra.
+              Uma preparação pensada do edital até o dia da prova. Do jeito que
+              a FGV realmente cobra.
             </p>
           </div>
 
@@ -617,15 +757,17 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                 className="text-sm sm:text-base lg:text-lg mb-4 sm:mb-6 leading-relaxed"
                 style={{ display: "none" }}
               >
-                A OAB cobra 20 disciplinas na 1ª Fase, em um intervalo médio de 90 dias entre o edital
-                e a prova. Estudar tudo, de forma genérica, simplesmente não funciona.
+                A OAB cobra 20 disciplinas na 1ª Fase, em um intervalo médio de
+                90 dias entre o edital e a prova. Estudar tudo, de forma
+                genérica, simplesmente não funciona.
               </p>
               <p
                 className="text-base sm:text-lg lg:text-xl font-bold text-[#771819] mb-6 sm:mb-8"
                 style={{ display: "none" }}
               >
-                Por isso, no Pantheon OAB, todo o conteúdo é organizado com base no que já foi cobrado
-                nos Exames anteriores. Você estuda o que precisa. Nem mais. Nem menos.
+                Por isso, no Pantheon OAB, todo o conteúdo é organizado com base
+                no que já foi cobrado nos Exames anteriores. Você estuda o que
+                precisa. Nem mais. Nem menos.
               </p>
 
               <div className="grid sm:grid-cols-2 gap-8 sm:gap-12 mt-8 sm:mt-16">
@@ -633,10 +775,12 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                   <div className="flex gap-3 sm:gap-4">
                     <BookOpen className="text-[#771819] flex-shrink-0 w-6 h-6 sm:w-7 sm:h-7" />
                     <div>
-                      <h3 className="text-lg sm:text-xl font-bold mb-2">Teoria direcionada</h3>
+                      <h3 className="text-lg sm:text-xl font-bold mb-2">
+                        Teoria direcionada
+                      </h3>
                       <p className="text-sm sm:text-base text-slate-600">
-                        Aulas construídas a partir das cobranças reais da FGV. Nada de conteúdo
-                        aleatório. +1.000 aulas organizadas.
+                        Aulas construídas a partir das cobranças reais da FGV.
+                        Nada de conteúdo aleatório. +1.000 aulas organizadas.
                       </p>
                       <img
                         src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/4366694a-32dd-429f-a0e0-a9216cbef511.png"
@@ -657,8 +801,8 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                         Mapas Mentais Estratégicos
                       </h3>
                       <p className="text-sm sm:text-base text-slate-600">
-                        Revisão eficiente por disciplina, assunto e padrão de cobrança. Economize tempo
-                        e fixe o que importa.
+                        Revisão eficiente por disciplina, assunto e padrão de
+                        cobrança. Economize tempo e fixe o que importa.
                       </p>
                       <img
                         src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/021f7dda-ee37-4657-b7e6-ff7dc8030525.png"
@@ -677,10 +821,12 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                   <div className="flex gap-3 sm:gap-4">
                     <FileText className="text-[#771819] flex-shrink-0 w-6 h-6 sm:w-7 sm:h-7" />
                     <div>
-                      <h3 className="text-lg sm:text-xl font-bold mb-2">Provas Comentadas</h3>
+                      <h3 className="text-lg sm:text-xl font-bold mb-2">
+                        Provas Comentadas
+                      </h3>
                       <p className="text-sm sm:text-base text-slate-600">
-                        Todas as provas anteriores com comentários objetivos dos professores focados no
-                        raciocínio da banca.
+                        Todas as provas anteriores com comentários objetivos dos
+                        professores focados no raciocínio da banca.
                       </p>
                       <img
                         src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/10ae8bcc-cd81-4b75-9fc6-cb6af46366ba.png"
@@ -697,10 +843,12 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                   <div className="flex gap-3 sm:gap-4">
                     <BarChart3 className="text-[#771819] flex-shrink-0 w-6 h-6 sm:w-7 sm:h-7" />
                     <div>
-                      <h3 className="text-lg sm:text-xl font-bold mb-2">Sistema de Questões</h3>
+                      <h3 className="text-lg sm:text-xl font-bold mb-2">
+                        Sistema de Questões
+                      </h3>
                       <p className="text-sm sm:text-base text-slate-600">
-                        Treino diário com filtros por disciplina e assunto. Acompanhe sua evolução com
-                        +100 mil questões.
+                        Treino diário com filtros por disciplina e assunto.
+                        Acompanhe sua evolução com +100 mil questões.
                       </p>
                       <img
                         src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/17801b87-60ee-4b15-8bea-a016a27cf0c5.png"
@@ -721,10 +869,12 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                 <div className="flex gap-3 sm:gap-4">
                   <Scale className="text-[#771819] flex-shrink-0 w-6 h-6 sm:w-7 sm:h-7" />
                   <div>
-                    <h3 className="text-lg sm:text-xl font-bold mb-2">Vade Mecum Digital</h3>
+                    <h3 className="text-lg sm:text-xl font-bold mb-2">
+                      Vade Mecum Digital
+                    </h3>
                     <p className="text-sm sm:text-base text-slate-600">
-                      Legislação integrada: CF, Códigos, Estatuto da OAB e Jurisprudência atualizada e
-                      fácil de navegar.
+                      Legislação integrada: CF, Códigos, Estatuto da OAB e
+                      Jurisprudência atualizada e fácil de navegar.
                     </p>
                     <img
                       src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/d0d64de1-c6a3-49fa-936e-8fd148ff1662.png"
@@ -745,8 +895,8 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                       Simulados Diários (Bônus)
                     </h3>
                     <p className="text-sm sm:text-base text-slate-600">
-                      Receba simulados prontos por e-mail baseados em cobranças reais para imprimir ou
-                      fazer online.
+                      Receba simulados prontos por e-mail baseados em cobranças
+                      reais para imprimir ou fazer online.
                     </p>
                     <img
                       src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/d69f04cf-be5e-4cad-b4a4-2836c5d7bb57.png"
@@ -782,8 +932,9 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                   Garantia incondicional de 7 dias
                 </h3>
                 <p className="text-sm sm:text-base text-white/90">
-                  Teste a plataforma sem riscos. Se não for o que você esperava, devolvemos 100% do
-                  seu investimento. Sem perguntas, sem burocracia.
+                  Teste a plataforma sem riscos. Se não for o que você esperava,
+                  devolvemos 100% do seu investimento. Sem perguntas, sem
+                  burocracia.
                 </p>
               </div>
             </div>
@@ -800,16 +951,16 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-12 sm:mb-16">
             <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black mb-4 px-2 leading-tight">
-              Desbloqueie agora o nosso algoritmo de aprovação e veja sua nota na prova da OAB
-              disparar
+              Desbloqueie agora o nosso algoritmo de aprovação e veja sua nota
+              na prova da OAB disparar
             </h2>
             <p className="text-xl text-slate-600" style={{ display: "none" }}>
               Invista no seu futuro profissional hoje mesmo.
             </p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 items-stretch">
-            {PLANS.map((plan) => (
-              <PricingCard key={plan.title} {...plan} onSelect={handleSelectPlan} />
+            {PLANS.map((plan, i) => (
+              <PricingCard key={i} {...plan} />
             ))}
           </div>
         </div>
@@ -823,7 +974,7 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
               className="w-12 h-12 bg-[#771819]/10 text-[#771819] rounded-full flex items-center justify-center"
               style={{ display: "none" }}
             >
-              <LibraryBig size={24} />
+              <Users size={24} />
             </div>
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center">
               Ainda com dúvidas?
@@ -833,8 +984,8 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
             Abaixo você encontra as perguntas mais comuns sobre o nosso curso
           </p>
           <div className="bg-white p-4 sm:p-6 md:p-10 rounded-3xl shadow-sm border border-slate-200">
-            {FAQS.map((faq) => (
-              <FAQItem key={faq.question} {...faq} />
+            {FAQS.map((faq, i) => (
+              <FAQItem key={i} {...faq} />
             ))}
           </div>
 
@@ -846,7 +997,8 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
               Ainda tem alguma dúvida?
             </h3>
             <p className="text-sm sm:text-base text-slate-600 mb-6 sm:mb-8 px-2">
-              Nossa equipe está pronta para te ajudar a escolher a melhor preparação.
+              Nossa equipe está pronta para te ajudar a escolher a melhor
+              preparação.
             </p>
             <a
               href="mailto:contato@pantheonconcursos.com.br"
@@ -881,9 +1033,208 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
 
               {/* Descrição */}
               <p className="text-white/90 mb-6 text-sm sm:text-base leading-relaxed">
-                Curso 100% on line com tudo o que você precisa para se preparar para a 1ª e 2ª Fase
-                da OAB.
+                Curso 100% on line com tudo o que você precisa para se preparar
+                para a 1ª e 2ª Fase da OAB.
               </p>
+
+              {/* Redes Sociais */}
+              <div className="mb-8">
+                <h3 className="text-lg sm:text-xl font-bold mb-4">
+                  Acompanhe o Pantheon nas redes sociais
+                </h3>
+                <div className="flex gap-3">
+                  <a
+                    href="https://www.facebook.com/pantheonconcursos"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-12 h-12 bg-[#1877F2] hover:bg-[#166FE5] rounded-lg flex items-center justify-center transition-colors"
+                  >
+                    <Facebook size={24} fill="white" />
+                  </a>
+                  <a
+                    href="https://www.instagram.com/pantheonconcursos"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-12 h-12 bg-gradient-to-br from-[#F58529] via-[#DD2A7B] to-[#8134AF] hover:opacity-90 rounded-lg flex items-center justify-center transition-opacity"
+                  >
+                    <Instagram size={24} />
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Coluna Direita - Contato */}
+            <div>
+              {/* Email */}
+              <div className="mb-6 flex items-start gap-4">
+                <div className="w-12 h-12 bg-[#2563EB] rounded-full flex items-center justify-center flex-shrink-0">
+                  <Mail size={24} />
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-bold mb-1">
+                    Nosso e-mail
+                  </h3>
+                  <a
+                    href="mailto:contato@pantheonconcursos.com.br"
+                    className="text-white/90 hover:text-white transition-colors text-sm sm:text-base break-all"
+                  >
+                    contato@pantheonconcursos.com.br
+                  </a>
+                </div>
+              </div>
+
+              {/* WhatsApp */}
+              <div className="mb-8 flex items-start gap-4">
+                <div className="w-12 h-12 bg-[#25D366] rounded-full flex items-center justify-center flex-shrink-0">
+                  <svg viewBox="0 0 24 24" className="w-6 h-6" fill="white">
+                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg sm:text-xl font-bold mb-1">
+                    Nosso WhatsApp
+                  </h3>
+                  <a
+                    href="https://wa.me/5511981989890"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white/90 hover:text-white transition-colors text-sm sm:text-base"
+                  >
+                    (11) 98198-9890
+                  </a>
+                </div>
+              </div>
+
+              {/* Selos de Segurança */}
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Google Safe Browsing */}
+                <img
+                  src="https://storage.googleapis.com/storage.magicpath.ai/user/358933834814865408/assets/05941013-045c-449a-a728-6b979ad558d2.png"
+                  alt="Google Safe Browsing"
+                  className="h-12 sm:h-14 w-auto"
+                  style={{
+                    objectFit: "contain",
+                    objectPosition: "50% 50%",
+                    opacity: "1",
+                    marginLeft: "0px",
+                    width: "200px",
+                    maxWidth: "200px",
+                    height: "70px",
+                  }}
+                />
+
+                {/* Reclame Aqui */}
+                <div id="ra-verified-seal" />
+              </div>
+            </div>
+          </div>
+
+          {/* Linha Divisória */}
+          <div className="border-t border-white/20 mb-8"></div>
+
+          {/* Copyright e Links Legais */}
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-xs sm:text-sm text-white/70">
+            <div className="text-center sm:text-left">
+              <p className="mb-1">
+                © {new Date().getFullYear()} Pantheon Concursos. Todos os direitos
+                reservados.
+              </p>
+              <p>Avenida Paulista, 1636 - Sala 1504 – Bela Vista São Paulo / SP</p>
+              <p>(CNPJ: 32.167.584/0001-80)</p>
+            </div>
+            <div className="flex gap-6">
+              <a href="#" className="hover:text-white transition-colors">
+                Política de Privacidade
+              </a>
+              <a href="#" className="hover:text-white transition-colors">
+                Termos de Uso
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
+
+      {loginModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full relative animate-in fade-in zoom-in duration-200">
+            <button
+              onClick={() => {
+                setLoginModalOpen(false);
+                setIsRegistering(false);
+                setLoginError("");
+              }}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label="Fechar"
+            >
+              <X className="w-6 h-6" />
+            </button>
+
+            <div className="p-8">
+              <div className="mb-6">
+                <h2 className="text-2xl font-semibold text-gray-900 leading-tight">
+                  {isRegistering
+                    ? "Faca sua conta Pantheon e"
+                    : "Faca login com sua conta"}
+                </h2>
+                <p className="text-2xl font-semibold text-red-700">
+                  {isRegistering ? "seja Aprovado!" : "Pantheon"}
+                </p>
+              </div>
+
+              <div className="space-y-3 mb-6">
+                <button
+                  type="button"
+                  className="w-full border border-gray-200 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm hover:bg-gray-50 transition-colors"
+                >
+                  <span className="w-6 h-6 rounded-full bg-white flex items-center justify-center border border-gray-200">
+                    <svg
+                      viewBox="0 0 48 48"
+                      className="w-4 h-4"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill="#FFC107"
+                        d="M43.611 20.083H42V20H24v8h11.303C33.749 32.657 29.23 36 24 36c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.955 3.045l5.657-5.657C34.047 6.053 29.268 4 24 4 12.954 4 4 12.954 4 24s8.954 20 20 20 20-8.954 20-20c0-1.341-.138-2.651-.389-3.917z"
+                      />
+                      <path
+                        fill="#FF3D00"
+                        d="M6.306 14.691l6.571 4.819C14.655 16.137 19.007 13 24 13c3.059 0 5.842 1.154 7.955 3.045l5.657-5.657C34.047 6.053 29.268 4 24 4 16.318 4 9.656 8.293 6.306 14.691z"
+                      />
+                      <path
+                        fill="#4CAF50"
+                        d="M24 44c5.127 0 9.86-1.977 13.409-5.197l-6.19-5.238C29.142 35.091 26.715 36 24 36c-5.206 0-9.712-3.318-11.275-7.946l-6.523 5.025C9.505 39.556 16.227 44 24 44z"
+                      />
+                      <path
+                        fill="#1976D2"
+                        d="M43.611 20.083H42V20H24v8h11.303c-.749 2.12-2.194 3.929-4.084 5.565l.003-.002 6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.651-.389-3.917z"
+                      />
+                    </svg>
+                  </span>
+                  <span className="text-sm text-gray-700">
+                    Entrar com Google
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="w-full border border-gray-200 rounded-lg px-4 py-2 flex items-center gap-3 shadow-sm hover:bg-gray-50 transition-colors"
+                >
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="w-3.5 h-3.5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M13.5 8.5V7.1c0-.7.5-1.1 1.2-1.1H16V3.2c-.2 0-.9-.1-1.7-.1-1.7 0-2.9 1-2.9 3v2.4H9.5v2.7h2.2V21h2.8v-9.8h2.3l.4-2.7h-2.7z"
+                      />
+                    </svg>
+                  </span>
+                  <span className="text-sm text-gray-700">
+                    Entrar com Facebook
+                  </span>
+                </button>
+              </div>
 
               {/* Redes Sociais */}
               <div className="mb-8">
