@@ -333,6 +333,9 @@ type PantheonConcursosProps = {
   onLoginModalShown?: () => void;
 };
 
+// --- Main Component ---
+
+// @component: PantheonOABSalesPage
 export const PantheonOABSalesPage = ({
   onNavigate,
   openLoginOnLoad,
@@ -393,40 +396,89 @@ export const PantheonOABSalesPage = ({
     },
     [onNavigate, rememberMe]
   );
-};
 
-// --- Main Component ---
+  const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
 
-// @component: PantheonOABSalesPage
-export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
-  useEffect(() => {
-    const container = document.getElementById("ra-verified-seal");
-    if (!container) return;
+    setLoginError("");
+    setLoginLoading(true);
 
-    const existingScript = container.querySelector<HTMLScriptElement>("#ra-embed-verified-seal");
-    if (existingScript) return;
+    try {
+      if (!email || !password) {
+        throw new Error("Informe e-mail e senha.");
+      }
 
-    container.innerHTML = "";
-    const script = document.createElement("script");
-    script.type = "text/javascript";
-    script.id = "ra-embed-verified-seal";
-    script.src = "https://s3.amazonaws.com/raichu-beta/ra-verified/bundle.js";
-    script.setAttribute("data-id", "WV9PZEpydmFxVF91cEtxdTpwYW50aGVvbi1jdXJzb3M=");
-    script.setAttribute("data-target", "ra-verified-seal");
-    script.setAttribute("data-model", "horizontal_1");
-    container.appendChild(script);
-  }, []);
+      if (isRegistering) {
+        if (!fullName.trim()) {
+          throw new Error("Informe seu nome completo.");
+        }
+        if (password != confirmPassword) {
+          throw new Error("As senhas nao conferem.");
+        }
 
-  const scrollToPricing = () => {
-    document.getElementById("pricing")?.scrollIntoView({
-      behavior: "smooth",
-    });
+        const registerResponse = await fetch(buildApiUrl("/auth/register"), {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            full_name: fullName,
+            email,
+            password,
+            confirm: confirmPassword,
+          }),
+        });
+
+        if (!registerResponse.ok) {
+          const message = await registerResponse.text();
+          throw new Error(
+            message || "Nao foi possivel criar a conta. Tente novamente."
+          );
+        }
+      }
+
+      const response = await fetch(buildApiUrl("/auth/login"), {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(
+          message || "Nao foi possivel autenticar. Verifique suas credenciais."
+        );
+      }
+
+      const data = await response.json();
+      persistSession(data, email);
+
+      setLoginModalOpen(false);
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+      setFullName("");
+      setRememberMe(false);
+      setIsRegistering(false);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Erro inesperado ao autenticar.";
+      setLoginError(message);
+    } finally {
+      setLoginLoading(false);
+    }
   };
 
-  const handleSelectPlan = (planKey: string) => {
-    if (onNavigate) {
-      onNavigate(`checkout:${planKey}`);
-      return;
+  React.useEffect(() => {
+    if (openLoginOnLoad) {
+      setLoginModalOpen(true);
+      onLoginModalShown?.();
     }
   }, [openLoginOnLoad, onLoginModalShown]);
 
@@ -449,6 +501,7 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
       container.innerHTML = "";
     };
   }, []);
+
   const scrollToPricing = () => {
     document.getElementById("pricing")?.scrollIntoView({
       behavior: "smooth",
