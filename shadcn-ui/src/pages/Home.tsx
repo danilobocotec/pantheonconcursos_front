@@ -429,6 +429,26 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
       return;
     }
   }, [openLoginOnLoad, onLoginModalShown]);
+
+  React.useEffect(() => {
+    const container = document.getElementById("ra-verified-seal");
+    if (!container) return;
+    container.innerHTML = "";
+    const script = document.createElement("script");
+    script.type = "text/javascript";
+    script.id = "ra-embed-verified-seal";
+    script.src = "https://s3.amazonaws.com/raichu-beta/ra-verified/bundle.js";
+    script.setAttribute(
+      "data-id",
+      "WV9PZEpydmFxVF91cEtxdTpwYW50aGVvbi1jdXJzb3M="
+    );
+    script.setAttribute("data-target", "ra-verified-seal");
+    script.setAttribute("data-model", "horizontal_1");
+    container.appendChild(script);
+    return () => {
+      container.innerHTML = "";
+    };
+  }, []);
   const scrollToPricing = () => {
     document.getElementById("pricing")?.scrollIntoView({
       behavior: "smooth",
@@ -1051,16 +1071,7 @@ export const PantheonOABSalesPage = (_props: PantheonConcursosProps) => {
                 />
 
                 {/* Reclame Aqui */}
-                <div id="ra-verified-seal">
-                  <script
-                    type="text/javascript"
-                    id="ra-embed-verified-seal"
-                    src="https://s3.amazonaws.com/raichu-beta/ra-verified/bundle.js"
-                    data-id="WV9PZEpydmFxVF91cEtxdTpwYW50aGVvbi1jdXJzb3M="
-                    data-target="ra-verified-seal"
-                    data-model="horizontal_1"
-                  ></script>
-                </div>
+                <div id="ra-verified-seal" />
               </div>
             </div>
           </div>
