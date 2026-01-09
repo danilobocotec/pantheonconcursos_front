@@ -133,6 +133,7 @@ const QUESTIONS_SEARCH_URL = buildApiUrl('/questoes/search');
 const QUESTIONS_COUNT_URL = buildApiUrl('/questoes/contador');
 const PERFORMANCE_URL = buildApiUrl('/meu-desempenho');
 const PERFORMANCE_SUMMARY_URL = buildApiUrl('/meu-desempenho/resumo');
+const USER_ANSWERS_URL = buildApiUrl('/questoes/respostas');
 
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === 'object' && value !== null;
@@ -558,6 +559,14 @@ const formatCorrecaoLabel = (value: string) => {
   return value || 'Status';
 };
 
+const normalizeTipoQuestaoParam = (value: string) => {
+  const normalized = normalizeFilterValue(value);
+  if (normalized.includes('certo') && normalized.includes('errado')) {
+    return 'CERTO_ERRADO';
+  }
+  return value.trim();
+};
+
 const buildQuestionQuery = (
   filters: QuestionFilters,
   page?: number,
@@ -572,8 +581,7 @@ const buildQuestionQuery = (
     ['orgao', filters.orgao.map(item => item.trim()).filter(Boolean).join(',')],
     ['cargo', filters.cargo.map(item => item.trim()).filter(Boolean).join(',')],
     ['concurso', filters.concurso.map(item => item.trim()).filter(Boolean).join(',')],
-    ['tipo_questao', filters.tipo_questao.map(item => item.trim()).filter(Boolean).join(',')],
-    ['correcao_questao', filters.correcao_questao.map(item => item.trim()).filter(Boolean).join(',')]
+    ['tipo_questao', filters.tipo_questao.map(normalizeTipoQuestaoParam).filter(Boolean).join(',')]
   ];
 
   entries.forEach(([key, value]) => {
@@ -586,6 +594,33 @@ const buildQuestionQuery = (
 
   const query = params.toString();
   return query ? `?${query}` : '';
+};
+
+const normalizeUserAnswer = (value: unknown) => {
+  if (!isRecord(value)) return null;
+  const questaoIdRaw =
+    getFirstString(value, ['questao_id', 'questaoId', 'question_id', 'questionId']) ||
+    String(value['questao'] ?? value['id'] ?? '');
+  if (!questaoIdRaw) return null;
+  const corretaRaw = value['correta'] ?? value['isCorrect'] ?? value['correct'];
+  const correta =
+    typeof corretaRaw === 'boolean'
+      ? corretaRaw
+      : normalizeFilterValue(String(corretaRaw)) === 'true';
+  return {
+    questaoId: questaoIdRaw,
+    correta
+  };
+};
+
+const matchesAnswerFilter = (filterValue: string, answer?: boolean) => {
+  const normalized = normalizeFilterValue(filterValue);
+  const isAnswered = typeof answer === 'boolean';
+  if (normalized.includes('nao') && normalized.includes('resolv')) return !isAnswered;
+  if (normalized.includes('resolv')) return isAnswered;
+  if (normalized.includes('certa')) return isAnswered && answer === true;
+  if (normalized.includes('errada')) return isAnswered && answer === false;
+  return true;
 };
 
 const normalizeQuestionRecord = (item: unknown, index: number): Question => {
@@ -2324,6 +2359,8 @@ const SistemaQuestoes: React.FC = () => {
     anulada: [true],
     desatualizada: [true]
   });
+  const [userAnswers, setUserAnswers] = useState<Record<string, boolean>>({});
+  const [userAnswersLoading, setUserAnswersLoading] = useState(false);
   const [performancePeriod, setPerformancePeriod] = useState('all');
   const [performanceView, setPerformanceView] = useState<'bar' | 'line'>('bar');
   const [performanceSummary, setPerformanceSummary] = useState<PerformanceSummary>({
@@ -2552,7 +2589,6 @@ const SistemaQuestoes: React.FC = () => {
     if (activeTab !== 'objective') return;
     void loadQuestionsCount(appliedFilters);
   }, [activeTab, appliedFilters, loadQuestionsCount]);
-
   useEffect(() => {
     if (activeTab !== 'performance') return;
     void loadPerformanceSummary(performancePeriod);
@@ -2605,7 +2641,6 @@ const SistemaQuestoes: React.FC = () => {
 
   const tabs = [
     { id: 'objective', label: 'Questões Objetivas', icon: HelpCircle },
-    { id: 'discursive', label: 'Questões Discursivas', icon: FileText },
     { id: 'exams', label: 'Provas Comentadas', icon: BookOpen },
     { id: 'simulations', label: 'Simulados', icon: Target },
     { id: 'performance', label: 'Meu Desempenho', icon: BarChart3 }
@@ -2701,6 +2736,85 @@ const SistemaQuestoes: React.FC = () => {
     }
   }, []);
 
+  const loadUserAnswers = useCallback(async () => {
+    setUserAnswersLoading(true);
+    try {
+      const token =
+        typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (!token) {
+        setUserAnswers({});
+        return;
+      }
+      const response = await fetch(USER_ANSWERS_URL, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Falha ao carregar respostas (${response.status})`);
+      }
+      const payload = await response.json();
+      const items = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.respostas)
+          ? payload.respostas
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+      const next: Record<string, boolean> = {};
+      items.forEach((item: unknown) => {
+        const normalized = normalizeUserAnswer(item);
+        if (normalized) {
+          next[normalized.questaoId] = normalized.correta;
+        }
+      });
+      setUserAnswers(next);
+    } catch (requestError) {
+      setUserAnswers({});
+    } finally {
+      setUserAnswersLoading(false);
+    }
+  }, []);
+
+
+  useEffect(() => {
+    if (activeTab !== 'objective') return;
+    void loadUserAnswers();
+  }, [activeTab, loadUserAnswers]);
+  const sendUserAnswer = useCallback(async (questionId: string, isCorrect: boolean) => {
+    try {
+      const token =
+        typeof window !== 'undefined' ? window.localStorage.getItem(TOKEN_KEY) : null;
+      if (!token) return;
+      const parsedId = Number(questionId);
+      const payload = {
+        correta: isCorrect,
+        questao_id: Number.isNaN(parsedId) ? questionId : parsedId
+      };
+      const response = await fetch(USER_ANSWERS_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || `Falha ao salvar resposta (${response.status})`);
+      }
+      setUserAnswers(prev => ({
+        ...prev,
+        [questionId]: isCorrect
+      }));
+    } catch (requestError) {
+      console.error('Erro ao enviar resposta', requestError);
+    }
+  }, []);
+
   const handleAnswerSubmit = (questionId: string) => {
     if (!selectedAnswers[questionId]) return;
     if (answeredQuestions[questionId]) return;
@@ -2715,6 +2829,7 @@ const SistemaQuestoes: React.FC = () => {
     
     setQuestionsAnswered(prev => prev + 1);
     void sendPerformanceUpdate(isCorrect);
+    void sendUserAnswer(questionId, isCorrect);
   };
 
   const handleStrikeOption = (questionId: string, optionIndex: number) => {
@@ -2743,10 +2858,20 @@ const SistemaQuestoes: React.FC = () => {
   };
 
   const renderObjectiveQuestions = () => {
+    const responseFilterActive = appliedFilters.correcao_questao.length > 0;
+    const responseFilteredQuestions = responseFilterActive
+      ? questions.filter((question) =>
+          appliedFilters.correcao_questao.some((filterValue) =>
+            matchesAnswerFilter(filterValue, userAnswers[question.id])
+          )
+        )
+      : questions;
     const totalCount = questionsCount ?? questions.length;
-    const countLabel = questionsCountLoading
+    const countLabel = questionsCountLoading || (responseFilterActive && userAnswersLoading)
       ? 'Carregando...'
-      : `${totalCount.toLocaleString('pt-BR')} questões encontradas`;
+      : responseFilterActive
+        ? `${responseFilteredQuestions.length.toLocaleString('pt-BR')} questões encontradas`
+        : `${totalCount.toLocaleString('pt-BR')} questões encontradas`;
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
     const subjectOptions = getSubjectOptions();
     const selectedFilterGroups: Array<{
@@ -2990,10 +3115,12 @@ const SistemaQuestoes: React.FC = () => {
           <Card>Carregando questões...</Card>
         ) : questionsError ? (
           <Card>{questionsError}</Card>
-        ) : questions.length === 0 ? (
-          <Card>Nenhuma questão encontrada.</Card>
+        ) : responseFilterActive && userAnswersLoading ? (
+          <Card>Carregando respostas...</Card>
+        ) : responseFilteredQuestions.length === 0 ? (
+          <Card>Nenhuma quest?o encontrada.</Card>
         ) : (
-          questions.map((question, index) => {
+          responseFilteredQuestions.map((question, index) => {
             const isAnswered = answeredQuestions[question.id];
             const userAnswer = selectedAnswers[question.id];
             const isCorrect = userAnswer === question.correctAnswer;
@@ -3005,6 +3132,11 @@ const SistemaQuestoes: React.FC = () => {
               return `${question.contest} - ${yearLabel}`;
             })();
 
+            const displayQuestionText =
+              question.type === 'true-false'
+                ? question.question.replace(/\n{2,}/g, '\n')
+                : question.question;
+
             return (
               <QuestionItem
                 key={question.id}
@@ -3015,7 +3147,9 @@ const SistemaQuestoes: React.FC = () => {
                 <QuestionHeader>
                   <div className="question-info">
                     <div className="question-heading">
-                      <span className="question-index">{index + 1}</span>
+                      <span className="question-index">
+                        {(currentPage - 1) * pageSize + index + 1}
+                      </span>
                       {question.questionNumber !== '-' && (
                         <span className="question-code">{question.questionNumber}</span>
                       )}
@@ -3038,7 +3172,7 @@ const SistemaQuestoes: React.FC = () => {
                 </QuestionHeader>
 
                 <QuestionText $fontSize={fontSize}>
-                  {question.question}
+                  {displayQuestionText}
                 </QuestionText>
                 <div style={{ height: 4 }} />
 
@@ -3267,54 +3401,6 @@ const SistemaQuestoes: React.FC = () => {
   };
   const renderDiscursiveQuestions = () => (
     <>
-      <FiltersContainer>
-        <FilterGroup>
-          <label>Ano</label>
-          <select>
-            <option value="">Todos</option>
-            <option value="2023">2023</option>
-            <option value="2022">2022</option>
-          </select>
-        </FilterGroup>
-        <FilterGroup>
-          <label>Disciplina</label>
-          <select>
-            <option value="">Todas</option>
-            <option value="civil">Direito Civil</option>
-            <option value="penal">Direito Penal</option>
-          </select>
-        </FilterGroup>
-        <FilterGroup>
-          <label>Órgão</label>
-          <select>
-            <option value="">Todos</option>
-            <option value="oab">OAB</option>
-          </select>
-        </FilterGroup>
-
-        <FontControlGroup>
-          <label>Tamanho da Fonte</label>
-          <div className="font-controls">
-            <button 
-              className="font-button"
-              onClick={decreaseFontSize}
-              disabled={fontSize <= minFontSize}
-              title="Diminuir fonte"
-            >
-              <Minus size={14} />
-            </button>
-            <span className="font-size">{fontSize}px</span>
-            <button 
-              className="font-button"
-              onClick={increaseFontSize}
-              disabled={fontSize >= maxFontSize}
-              title="Aumentar fonte"
-            >
-              <Plus size={14} />
-            </button>
-          </div>
-        </FontControlGroup>
-      </FiltersContainer>
 
       <QuestionCounter>
         {mockDiscursiveQuestions.length} questões encontradas

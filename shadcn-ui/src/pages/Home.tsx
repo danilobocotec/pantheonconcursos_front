@@ -397,6 +397,44 @@ export const PantheonOABSalesPage = ({
     [onNavigate, rememberMe]
   );
 
+
+  const toPortugueseAuthError = (rawMessage: string, fallback: string) => {
+    const message = rawMessage?.trim();
+    if (!message) return fallback;
+    const normalized = message.toLowerCase();
+    const alreadyPt = /[À-ſ]/.test(message) ||
+      normalized.includes('senha') ||
+      normalized.includes('e-mail') ||
+      normalized.includes('usuario') ||
+      normalized.includes('usu?rio') ||
+      normalized.includes('cadastro');
+    if (alreadyPt) return message;
+
+    if (normalized.includes('invalid') && normalized.includes('cred')) {
+      return 'E-mail ou senha inv?lidos.';
+    }
+    if (normalized.includes('invalid') && normalized.includes('password')) {
+      return 'E-mail ou senha inv?lidos.';
+    }
+    if (normalized.includes('unauthorized') || normalized.includes('forbidden')) {
+      return 'E-mail ou senha inv?lidos.';
+    }
+    if (normalized.includes('user') && normalized.includes('not found')) {
+      return 'Usu?rio n?o encontrado.';
+    }
+    if (normalized.includes('email') && normalized.includes('already')) {
+      return 'E-mail j? cadastrado.';
+    }
+    if (normalized.includes('password') && (normalized.includes('weak') || normalized.includes('short'))) {
+      return 'Senha muito fraca.';
+    }
+    if (normalized.includes('failed to fetch') || normalized.includes('network')) {
+      return 'N?o foi poss?vel conectar ao servidor.';
+    }
+
+    return fallback;
+  };
+
   const handleAuth = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -433,7 +471,7 @@ export const PantheonOABSalesPage = ({
         if (!registerResponse.ok) {
           const message = await registerResponse.text();
           throw new Error(
-            message || "Nao foi possivel criar a conta. Tente novamente."
+            toPortugueseAuthError(message, "Nao foi possivel criar a conta. Tente novamente.")
           );
         }
       }
@@ -450,7 +488,7 @@ export const PantheonOABSalesPage = ({
       if (!response.ok) {
         const message = await response.text();
         throw new Error(
-          message || "Nao foi possivel autenticar. Verifique suas credenciais."
+          toPortugueseAuthError(message, "Nao foi possivel autenticar. Verifique suas credenciais.")
         );
       }
 
@@ -467,7 +505,7 @@ export const PantheonOABSalesPage = ({
     } catch (error) {
       const message =
         error instanceof Error
-          ? error.message
+          ? toPortugueseAuthError(error.message, "Erro inesperado ao autenticar.")
           : "Erro inesperado ao autenticar.";
       setLoginError(message);
     } finally {
