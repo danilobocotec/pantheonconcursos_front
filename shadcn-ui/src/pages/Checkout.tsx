@@ -378,17 +378,21 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
           <div className="flex items-center justify-between">
             <button
               onClick={() => onNavigate?.("home")}
-              className="flex items-center space-x-3 hover:opacity-80 transition-opacity"
+              className="flex items-center hover:opacity-80 transition-opacity"
             >
-              <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-red-600 rounded-lg flex items-center justify-center">
-                <Trophy className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-bold bg-gradient-to-r from-orange-600 to-red-600 bg-clip-text text-transparent">
-                PANTHEON CONCURSOS
-              </span>
+              <img
+                src="/LogoTopoSite_horizontal_rubro.jpg"
+                alt="Pantheon Concursos"
+                className="h-10 sm:h-12 w-auto"
+                style={{
+                  objectFit: "scale-down",
+                  objectPosition: "left center",
+                  maxWidth: "240px",
+                }}
+              />
             </button>
-            <div className="flex items-center gap-2 text-gray-700">
-              <Shield className="w-5 h-5 text-red-800" />
+            <div className="flex items-center gap-2 text-red-800">
+              <Shield className="w-5 h-5" />
               <span className="text-sm">Checkout protegido por SSL</span>
             </div>
           </div>
