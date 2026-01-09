@@ -275,7 +275,7 @@ const PricingCard = ({
       ))}
     </div>
     <a
-      href="/checkout"
+      href="/Checkout"
       className={`block text-center py-3 sm:py-4 rounded-xl text-sm sm:text-base font-bold uppercase transition-transform active:scale-95 ${
         isHighlighted
           ? "bg-[#0BA106] hover:bg-[#098905] text-white"

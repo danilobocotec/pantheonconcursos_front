@@ -56,22 +56,19 @@ const getInitialPage = (): PageKey => {
   if (path.startsWith('/aprova-oab')) return 'aprova-oab';
   if (path.startsWith('/checkout/success')) return 'checkout-success';
   if (path.startsWith('/checkout')) return 'checkout';
-  if (!isAuthenticated()) return 'checkout';
+  if (!isAuthenticated()) return 'home';
   if (path.startsWith('/admin')) {
-    return hasAdminPermission() ? 'admin-dashboard' : 'checkout';
+    return hasAdminPermission() ? 'admin-dashboard' : 'home';
   }
   if (path.startsWith('/index')) return 'index';
   const storedPage = getStoredValue(LAST_PAGE_KEY) as PageKey | null;
   if (storedPage) {
     if (storedPage === 'admin-dashboard' && !hasAdminPermission()) {
-      return 'checkout';
-    }
-    if (storedPage === 'home') {
-      return 'checkout';
+      return 'home';
     }
     return storedPage;
   }
-  return 'checkout';
+  return 'home';
 };
 
 const getPathForPage = (page: PageKey) => {
@@ -88,7 +85,7 @@ const getPathForPage = (page: PageKey) => {
       return '/index';
     case 'home':
     default:
-      return '/checkout';
+      return '/';
   }
 };
 
