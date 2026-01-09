@@ -1,5 +1,5 @@
 ﻿import React, { useState } from "react";
-import { Trophy, Shield, Check, CreditCard, X, Copy, CheckCircle } from "lucide-react";
+import { Shield, Check, CreditCard, X, Copy, CheckCircle } from "lucide-react";
 import { buildApiUrl } from "@/lib/api";
 
 type CheckoutPlan = {
@@ -886,8 +886,6 @@ export const CheckoutPage = (props: CheckoutPageProps) => {
 };
 
 export default CheckoutPage;
-
-
 
 
 
